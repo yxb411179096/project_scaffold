@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual env
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Local runtime data
+english_ppt_ai.sqlite3
+uploads/
+exports/
+
+# Editor / logs
+.idea/
+.vscode/
+*.log
