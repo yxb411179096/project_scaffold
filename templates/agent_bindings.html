@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+  <div>
+    <div class="section-kicker">Agent Strategy</div>
+    <h1 class="section-title mb-1">Agent 模型绑定</h1>
+    <div class="text-muted">为不同 Agent 配置执行模式、主模型、备用模型和回退策略。</div>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('ppt.ai_models_settings') }}">返回模型配置中心</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('ppt.tasks') }}">返回任务列表</a>
+  </div>
+</div>
+
+<section class="app-card p-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <div class="section-kicker">Bindings</div>
+      <h2 class="h5 mb-0">Agent 调用策略列表</h2>
+    </div>
+    <span class="badge text-bg-light">{{ bindings|length }} 个 Agent</span>
+  </div>
+
+  <div class="agent-binding-list">
+    {% for binding in bindings %}
+    <article class="agent-binding-card">
+      <div class="d-flex flex-wrap justify-content-between gap-3 mb-3">
+        <div>
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+            <h3 class="h6 mb-0">{{ binding.agent_label }}</h3>
+            <span class="badge text-bg-light">{{ binding.agent_name }}</span>
+            {% if binding.enabled %}
+            <span class="badge text-bg-success">已启用</span>
+            {% else %}
+            <span class="badge text-bg-secondary">已禁用</span>
+            {% endif %}
+          </div>
+          <div class="small text-muted">当前模式：{{ binding.mode_label }}</div>
+        </div>
+        <div class="small text-muted agent-binding-summary">
+          <div><strong>主模型：</strong>{{ binding.primary_model_label }}</div>
+          <div><strong>备用模型：</strong>{{ binding.fallback_model_label }}</div>
+        </div>
+      </div>
+
+      <form method="post" action="{{ url_for('ppt.update_agent_binding_settings', agent_name=binding.agent_name) }}">
+        <div class="row g-3">
+          <div class="col-lg-3">
+            <label class="form-label">执行模式</label>
+            <select class="form-select" name="mode">
+              {% for mode in mode_options %}
+              <option value="{{ mode }}" {% if binding.mode == mode %}selected{% endif %}>{{ mode_labels.get(mode, mode) }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-lg-4">
+            <label class="form-label">主模型</label>
+            <select class="form-select" name="primary_model_config_id">
+              <option value="">跟随系统默认模型</option>
+              {% for config in model_configs %}
+              <option value="{{ config.id }}" {% if binding.primary_model_config_id == config.id %}selected{% endif %}>
+                {{ config.name }} · {{ config.provider }} · {{ config.model_name or 'mock' }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-lg-4">
+            <label class="form-label">备用模型</label>
+            <select class="form-select" name="fallback_model_config_id">
+              <option value="">无备用模型</option>
+              {% for config in model_configs %}
+              <option value="{{ config.id }}" {% if binding.fallback_model_config_id == config.id %}selected{% endif %}>
+                {{ config.name }} · {{ config.provider }} · {{ config.model_name or 'mock' }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-lg-1">
+            <label class="form-label">启用</label>
+            <div class="form-check form-switch pt-2">
+              <input class="form-check-input" type="checkbox" name="enabled" {% if binding.enabled %}checked{% endif %}>
+            </div>
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">超时覆盖（秒）</label>
+            <input class="form-control" name="timeout_override" value="{{ binding.timeout_override or '' }}" placeholder="默认">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Temperature</label>
+            <input class="form-control" name="temperature" value="{{ binding.temperature }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Max Tokens</label>
+            <input class="form-control" name="max_tokens" value="{{ binding.max_tokens }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">JSON Required</label>
+            <div class="form-check form-switch pt-2">
+              <input class="form-check-input" type="checkbox" name="json_required" {% if binding.json_required %}checked{% endif %}>
+            </div>
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-4 mt-3">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="fallback_to_rule_{{ binding.id }}" name="fallback_to_rule" {% if binding.fallback_to_rule %}checked{% endif %}>
+            <label class="form-check-label" for="fallback_to_rule_{{ binding.id }}">失败后回退规则</label>
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button class="btn btn-primary btn-sm" type="submit">保存策略</button>
+        </div>
+      </form>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

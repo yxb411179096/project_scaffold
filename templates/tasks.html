@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+  <div>
+    <div class="section-kicker">Lesson Task Library</div>
+    <h1 class="section-title mb-1">课件任务</h1>
+    <div class="text-muted">查看已生成课件，继续编辑或直接导出。</div>
+  </div>
+  <a href="{{ url_for('ppt.new_task') }}" class="btn btn-primary">新建课件</a>
+</div>
+
+<section class="app-card p-0 overflow-hidden">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>ID</th>
+          <th>课题</th>
+          <th>年级</th>
+          <th>课型</th>
+          <th>Slides</th>
+          <th>状态</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for task in tasks %}
+        <tr>
+          <td>{{ task.id }}</td>
+          <td>
+            <div class="fw-semibold">{{ task.course_title }}</div>
+            <div class="small text-muted">{{ task.unit }} · {{ task.textbook }}</div>
+          </td>
+          <td>{{ task.grade }}</td>
+          <td>{{ task.lesson_type }}</td>
+          <td>{{ task.slide_count }}</td>
+          <td><span class="badge text-bg-light">{{ task.status }}</span></td>
+          <td class="d-flex flex-wrap gap-2">
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('ppt.edit_task', task_id=task.id) }}">编辑</a>
+            <a class="btn btn-sm btn-outline-success" href="{{ url_for('ppt.export_task_pptx', task_id=task.id) }}">PPTX</a>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('ppt.export_task_docx', task_id=task.id) }}">DOCX</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" class="text-center text-muted py-5">还没有任务，先新建一份课件。</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

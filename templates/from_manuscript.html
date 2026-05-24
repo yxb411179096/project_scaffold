@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-8">
+    <section class="app-card p-4 p-lg-5">
+      <div class="section-kicker">Manuscript to PPT</div>
+      <h1 class="section-title mb-3">文案 / 教案转 PPT</h1>
+      <p class="text-muted mb-4">粘贴已有文案，或上传 TXT / Markdown / Word / PDF，系统会先解析文本，再拆分为适合高中英语课堂的结构化 slide JSON。</p>
+
+      <form method="post" enctype="multipart/form-data">
+        <input type="hidden" name="manuscript_generation_strategy_user_selected" id="manuscript_generation_strategy_user_selected" value="0">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">课件标题</label>
+            <input name="course_title" class="form-control" required value="{{ form_data.course_title }}" placeholder="例如：Unit 2 Travelling Around Reading Lesson">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">年级</label>
+            <input name="grade" class="form-control" value="{{ form_data.grade }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">教材版本</label>
+            <input name="textbook" class="form-control" value="{{ form_data.textbook }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">单元</label>
+            <input name="unit" class="form-control" value="{{ form_data.unit }}" placeholder="Unit 2">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">课型</label>
+            <select name="lesson_type" class="form-select">
+              {% for option in lesson_type_options %}
+              <option value="{{ option }}" {% if form_data.lesson_type == option %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">学生水平</label>
+            <select name="student_level" class="form-select">
+              {% for option in student_level_options %}
+              <option value="{{ option }}" {% if form_data.student_level == option %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">课时 duration</label>
+            <input name="duration" class="form-control" value="{{ form_data.duration }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">生成风格</label>
+            <select name="style" class="form-select">
+              {% for option in style_options %}
+              <option value="{{ option }}" {% if form_data.style == option %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">文件上传</label>
+            <input type="file" name="manuscript_file" class="form-control" accept=".txt,.md,.docx,.pdf">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">生成模式</label>
+            <select name="manuscript_generation_strategy" id="manuscript_generation_strategy" class="form-select">
+              {% for value, label in manuscript_strategy_options %}
+              <option value="{{ value }}" {% if form_data.manuscript_generation_strategy == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">模式说明</label>
+            <div class="info-strip h-100 d-flex align-items-center">
+              如果您的文案已经按 PPT 页码写好，建议选择严格按原文页结构生成。
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">保真补全模式</label>
+            <select name="manuscript_preserve_completion_mode" class="form-select">
+              {% for value, label in preserve_completion_options %}
+              <option value="{{ value }}" {% if form_data.manuscript_preserve_completion_mode == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">保真模式英文润色</label>
+            <select name="manuscript_preserve_polish_mode" class="form-select">
+              {% for value, label in preserve_polish_options %}
+              <option value="{{ value }}" {% if form_data.manuscript_preserve_polish_mode == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">文案输入框</label>
+            <textarea name="manuscript_text" id="manuscript_text" class="form-control" rows="12" placeholder="粘贴教案、讲稿、课文分析或练习材料内容。">{{ form_data.manuscript_text }}</textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label">补充要求</label>
+            <textarea name="extra_requirements" class="form-control" rows="4" placeholder="例如：保留阅读课层次，课堂任务更明确，减少 PPT 正文密度。">{{ form_data.extra_requirements }}</textarea>
+          </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-4">
+          <button class="btn btn-primary">生成课件</button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('ppt.tasks') }}">返回任务列表</a>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="col-lg-4">
+    <section class="app-card p-4 h-100">
+      <div class="section-kicker">How It Works</div>
+      <h2 class="section-title mb-3">当前解析逻辑</h2>
+      <div class="support-list">
+        <div class="support-item">支持 txt / md / docx / pdf</div>
+        <div class="support-item">文案输入和文件上传可合并</div>
+        <div class="support-item">支持“严格按原文页结构生成”与“AI 优化重构生成”</div>
+        <div class="support-item">自动提取目标、步骤、总结、作业</div>
+        <div class="support-item">长文进入 teacher_notes，PPT 保持简洁</div>
+        <div class="support-item">继续支持编辑、trace、PPTX / DOCX 导出</div>
+      </div>
+      <div class="warning-note mt-4">文案输入和文件上传二选一即可；如果同时提供，系统会按“文件文本 + 粘贴文本”合并处理。上传文件大小限制为 20MB。</div>
+    </section>
+  </div>
+</div>
+<script>
+(() => {
+  const textarea = document.getElementById('manuscript_text');
+  const strategySelect = document.getElementById('manuscript_generation_strategy');
+  const userSelectedInput = document.getElementById('manuscript_generation_strategy_user_selected');
+  if (!textarea || !strategySelect) return;
+  const markerPattern = /(第\s*\d+\s*页|page\s*\d+|slide\s*\d+|幻灯片\s*\d+|[一二三四五六七八九十]+[、.．]\s*(封面|学习目标|导入|总结|作业))/i;
+  let manualChanged = false;
+  const updateStrategy = () => {
+    if (manualChanged) return;
+    const text = textarea.value || '';
+    if (markerPattern.test(text)) {
+      strategySelect.value = 'preserve_original_pages';
+    } else {
+      strategySelect.value = 'ai_restructure';
+    }
+  };
+  strategySelect.addEventListener('change', () => {
+    manualChanged = true;
+    if (userSelectedInput) {
+      userSelectedInput.value = '1';
+    }
+  });
+  textarea.addEventListener('input', updateStrategy);
+  updateStrategy();
+})();
+</script>
+{% endblock %}

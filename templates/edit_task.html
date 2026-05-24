@@ -1,0 +1,383 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+  <div>
+    <div class="section-kicker">Slide Editor</div>
+    <h1 class="section-title mb-1">{{ task.course_title }}</h1>
+    <div class="text-muted">{{ task.grade }} · {{ task.textbook }} · {{ task.unit }} · {{ task.lesson_type }}</div>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <form method="post" class="d-inline">
+      <button class="btn btn-primary" type="submit" name="action" value="regenerate_all">重新生成整套课件</button>
+    </form>
+    {% if is_manuscript_task %}
+    <form method="post" class="d-inline">
+      <button class="btn btn-outline-primary" type="submit" name="action" value="reanalyze_manuscript">重新分析文案并生成课件</button>
+    </form>
+    {% endif %}
+    {% if has_slides %}
+    <a class="btn btn-success" href="{{ url_for('ppt.export_task_pptx', task_id=task.id) }}">导出 PPTX</a>
+    <a class="btn btn-outline-success" href="{{ url_for('ppt.export_task_docx', task_id=task.id) }}">导出授课稿 DOCX</a>
+    {% endif %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('ppt.tasks') }}">返回任务列表</a>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-4">
+    <section class="app-card p-3 p-lg-4 sticky-panel">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 mb-0">Slides</h2>
+        <span class="badge text-bg-light">{{ slides|length }} 页</span>
+      </div>
+      <div class="list-group slide-list">
+        {% for slide in slides %}
+        <a
+          href="{{ url_for('ppt.edit_task', task_id=task.id, slide_id=slide.id) }}"
+          class="list-group-item list-group-item-action slide-link {% if selected_slide and slide.id == selected_slide.id %}active{% endif %}"
+        >
+          <div class="small text-uppercase text-muted">{{ slide.slide_type }}</div>
+          <div class="fw-semibold">{{ slide.slide_index }}. {{ slide.title }}</div>
+          <div class="small text-muted">{{ slide.estimated_time }} · {{ slide.interaction_type }}</div>
+        </a>
+        {% endfor %}
+      </div>
+      {% if not has_slides %}
+      <div class="warning-note mt-3">当前课件没有生成有效幻灯片，请重新生成课件。</div>
+      <form method="post" class="mt-3">
+        <button class="btn btn-primary w-100" type="submit" name="action" value="regenerate_all">重新生成整套课件</button>
+      </form>
+      {% if is_manuscript_task %}
+      <form method="post" class="mt-2">
+        <button class="btn btn-outline-primary w-100" type="submit" name="action" value="reanalyze_manuscript">重新分析文案并生成课件</button>
+      </form>
+      {% endif %}
+      {% endif %}
+      <div class="info-strip mt-3">
+        左侧切换 slide，右侧只编辑当前页；保存或重生成后会保留当前定位。
+      </div>
+    </section>
+  </div>
+
+  <div class="col-lg-8">
+    {% if is_manuscript_task %}
+    <section class="app-card p-4 mb-4">
+      <div class="section-kicker">Manuscript Analysis</div>
+      <h2 class="section-title mb-3">文案分析结果预览</h2>
+      <div class="meta-grid manuscript-meta-grid mb-3">
+        <div class="meta-card">
+          <div class="meta-label">文案类型</div>
+          <div class="meta-value">{{ manuscript_preview.manuscript_type }}</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">生成模式</div>
+          <div class="meta-value">
+            {% if manuscript_preview.manuscript_generation_strategy == 'preserve_original_pages' %}
+            严格按原文页结构生成
+            {% else %}
+            AI 优化重构生成
+            {% endif %}
+          </div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">保真补全模式</div>
+          <div class="meta-value">
+            {% if manuscript_preview.manuscript_preserve_completion_mode == 'preserve_and_append_closure' %}
+            自动补充 Summary / Homework / Blackboard Design
+            {% else %}
+            仅按原文页数生成
+            {% endif %}
+          </div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">原文长度</div>
+          <div class="meta-value">{{ manuscript_preview.source_word_count }} 字 / 词</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">内容密度</div>
+          <div class="meta-value">{{ manuscript_preview.content_density or '—' }}</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">建议生成策略</div>
+          <div class="meta-value">{{ manuscript_preview.recommended_generation_strategy }}</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">英文润色</div>
+          <div class="meta-value">
+            {% if manuscript_preview.manuscript_preserve_polish_mode == 'follow_agent_strategy' %}
+            按 Agent 策略执行
+            {% else %}
+            已跳过，保留原文表述
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="info-strip mb-3"><strong>文案摘要：</strong>{{ manuscript_preview.summary }}</div>
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="analysis-panel h-100">
+            <div class="analysis-title">识别出的教学环节</div>
+            {% if manuscript_preview.detected_sections %}
+            <div class="tag-list">
+              {% for item in manuscript_preview.detected_sections %}
+              <span class="tag-chip">{{ item }}</span>
+              {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted small">当前没有稳定识别出的教学环节。</div>
+            {% endif %}
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="analysis-panel h-100">
+            <div class="analysis-title">缺失环节</div>
+            {% if manuscript_preview.missing_sections %}
+            <div class="tag-list">
+              {% for item in manuscript_preview.missing_sections %}
+              <span class="tag-chip tag-chip-warn">{{ item }}</span>
+              {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-muted small">关键环节基本完整。</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% if manuscript_preview.organization_suggestion %}
+      <div class="warning-note mt-3">{{ manuscript_preview.organization_suggestion }}</div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if selected_slide %}
+    <section class="app-card p-4 mb-4">
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <div>
+          <div class="section-kicker">Current Slide</div>
+          <h2 class="h4 mb-0">Slide {{ selected_slide.slide_index }} · {{ selected_slide.slide_type }}</h2>
+        </div>
+        <span class="badge text-bg-light">{{ selected_slide.estimated_time }}</span>
+      </div>
+
+      <div class="meta-grid mb-4">
+        <div class="meta-card">
+          <div class="meta-label">Slide Type</div>
+          <div class="meta-value">{{ selected_slide.slide_type }}</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Teaching Purpose</div>
+          <div class="meta-value">{{ selected_slide.teaching_purpose }}</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Estimated Time</div>
+          <div class="meta-value">{{ selected_slide.estimated_time }}</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Interaction Type</div>
+          <div class="meta-value">{{ selected_slide.interaction_type }}</div>
+        </div>
+      </div>
+
+      {% if selected_slide.warning %}
+      <div class="warning-note mb-3">{{ selected_slide.warning }}</div>
+      {% endif %}
+
+      <form method="post">
+        <input type="hidden" name="slide_id" value="{{ selected_slide.id }}">
+
+        <label class="form-label">标题</label>
+        <input name="title" class="form-control mb-3" value="{{ selected_slide.title }}">
+
+        <label class="form-label">页面可见内容，每行一条</label>
+        <textarea name="visible_content" class="form-control mb-3" rows="7">{{ '\n'.join(selected_slide.visible_content) }}</textarea>
+
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label">Key Sentence</label>
+            <textarea name="key_sentence" class="form-control" rows="3">{{ selected_slide.key_sentence or '' }}</textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Image Suggestion</label>
+            <textarea name="image_suggestion" class="form-control" rows="3">{{ selected_slide.image_suggestion or '' }}</textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Useful Expressions，每行一条</label>
+            <textarea name="useful_expressions" class="form-control" rows="4">{{ '\n'.join(selected_slide.useful_expressions or []) }}</textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Possible Answers，每行一条</label>
+            <textarea name="possible_answers" class="form-control" rows="4">{{ '\n'.join(selected_slide.possible_answers or []) }}</textarea>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Chinese Hint</label>
+            <textarea name="chinese_hint" class="form-control" rows="2">{{ selected_slide.chinese_hint or '' }}</textarea>
+          </div>
+        </div>
+
+        <label class="form-label">授课备注</label>
+        <textarea name="teacher_notes" class="form-control mb-3" rows="4">{{ selected_slide.teacher_notes }}</textarea>
+
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">教学目的</label>
+            <input name="teaching_purpose" class="form-control" value="{{ selected_slide.teaching_purpose }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">预计时间</label>
+            <input name="estimated_time" class="form-control" value="{{ selected_slide.estimated_time }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">互动类型</label>
+            <input name="interaction_type" class="form-control" value="{{ selected_slide.interaction_type }}">
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2 mt-4">
+          <button class="btn btn-primary" name="action" value="save">保存本页</button>
+          <button class="btn btn-outline-secondary" name="action" value="regenerate">重新生成本页</button>
+        </div>
+      </form>
+    </section>
+    {% elif not has_slides %}
+    <section class="app-card p-4 mb-4">
+      <div class="section-kicker">Recovery</div>
+      <h2 class="section-title mb-3">当前课件没有有效幻灯片</h2>
+      <div class="warning-note mb-3">当前课件没有生成有效幻灯片，请重新生成课件。</div>
+      <div class="text-muted mb-3">这通常表示测试数据残留，或生成流程在异常后没有留下可编辑的 slide。系统现在支持直接重新生成整套课件。</div>
+      <div class="d-flex flex-wrap gap-2">
+        <form method="post">
+          <button class="btn btn-primary" type="submit" name="action" value="regenerate_all">重新生成整套课件</button>
+        </form>
+        {% if is_manuscript_task %}
+        <form method="post">
+          <button class="btn btn-outline-primary" type="submit" name="action" value="reanalyze_manuscript">重新分析文案并生成课件</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if has_slides %}
+    <section class="app-card p-4 mb-4">
+      <div class="section-kicker">Full Preview</div>
+      <h2 class="section-title mb-3">预览全部内容</h2>
+      <div class="preview-grid">
+        {% for slide in slides %}
+        <article class="preview-card preview-card-{{ slide.slide_type|replace('_', '-') }} {% if slide.slide_type == 'cover' %}cover-preview{% elif slide.slide_type == 'objectives' %}objectives-preview{% elif slide.slide_type == 'lead_in' %}leadin-preview{% elif slide.slide_type == 'warm_up' %}warmup-preview{% elif slide.slide_type in ['pre_reading', 'prediction'] %}prereading-preview{% endif %}">
+          <div class="preview-card-header">
+            <div>
+              <div class="small text-uppercase text-muted">{{ slide.slide_type }}</div>
+              <h3 class="h6 mb-0">{{ slide.slide_index }}. {{ slide.title }}</h3>
+            </div>
+            <span class="badge text-bg-light">{{ slide.estimated_time }}</span>
+          </div>
+          <ul class="preview-list">
+            {% for item in slide.visible_content %}
+            <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+          {% if slide.key_sentence %}
+          <div class="preview-highlight"><strong>Key Sentence:</strong> {{ slide.key_sentence }}</div>
+          {% endif %}
+          {% if slide.useful_expressions %}
+          <div class="preview-subsection">
+            <div class="preview-subtitle">Useful Expressions</div>
+            <ul class="preview-mini-list">
+              {% for item in slide.useful_expressions %}
+              <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+          {% if slide.image_suggestion %}
+          <div class="preview-image-box mt-2">
+            <div class="preview-image-label">Image Placeholder</div>
+            <div class="preview-image-text">{{ slide.image_suggestion }}</div>
+          </div>
+          {% endif %}
+          {% if slide.possible_answers %}
+          <div class="preview-subsection">
+            <div class="preview-subtitle">Possible Answers</div>
+            <div class="tag-list">
+              {% for item in slide.possible_answers %}
+              <span class="tag-chip">{{ item }}</span>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+          {% if slide.chinese_hint %}
+          <div class="small text-muted"><strong>Chinese Hint:</strong> {{ slide.chinese_hint }}</div>
+          {% endif %}
+          <details class="teacher-info-panel mt-3">
+            <summary>教师信息</summary>
+            <div class="small text-muted mt-2"><strong>Purpose:</strong> {{ slide.teaching_purpose }}</div>
+            <div class="small text-muted"><strong>Interaction:</strong> {{ slide.interaction_type }}</div>
+            <div class="small text-muted"><strong>Notes:</strong> {{ slide.teacher_notes }}</div>
+          </details>
+          {% if slide.warning %}
+          <div class="small text-warning-emphasis mt-2"><strong>Warning:</strong> {{ slide.warning }}</div>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    <section class="app-card p-4 mb-4">
+      <div class="section-kicker">Generation Trace</div>
+      <h2 class="section-title mb-3">生成 trace</h2>
+      {% if llm_call_logs %}
+      <div class="trace-list">
+        {% for log in llm_call_logs %}
+        <article class="trace-card {% if log.is_manuscript_agent %}trace-card-manuscript{% endif %}">
+          <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+            <div>
+              <div class="fw-semibold">
+                {{ log.agent_label }}
+                {% if log.is_manuscript_agent %}
+                <span class="badge trace-badge-manuscript">Manuscript</span>
+                {% endif %}
+              </div>
+              <div class="small text-muted">{{ log.created_at }}</div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+              <span class="badge text-bg-light">{{ log.provider or 'rule' }}</span>
+              <span class="badge text-bg-light">{{ log.model_name or 'rule' }}</span>
+              {% if log.status == 'success' %}
+              <span class="badge text-bg-success">{{ log.status_label }}</span>
+              {% elif log.status == 'failed' %}
+              <span class="badge text-bg-danger">{{ log.status_label }}</span>
+              {% elif log.is_fallback %}
+              <span class="badge text-bg-warning">{{ log.status_label }}</span>
+              {% else %}
+              <span class="badge text-bg-secondary">{{ log.status_label }}</span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="trace-meta">
+            <div><strong>Agent:</strong> {{ log.agent_name }}</div>
+            <div><strong>耗时:</strong> {{ log.duration_ms }} ms</div>
+          </div>
+          {% if log.error_message %}
+          <div class="small text-muted mt-2">{{ log.error_message }}</div>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="info-strip">当前任务还没有生成 trace 记录。</div>
+      {% endif %}
+    </section>
+
+    <section class="app-card p-4">
+      <div class="section-kicker">JSON Preview</div>
+      <h2 class="section-title mb-3">结构化 Slide JSON</h2>
+      {% if has_slides %}
+      <pre class="json-preview mb-0">{{ slide_json_preview }}</pre>
+      {% else %}
+      <div class="info-strip">当前没有可展示的 slide JSON。请先重新生成整套课件。</div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

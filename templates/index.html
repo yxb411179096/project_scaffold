@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero-panel mb-4">
+  <div class="row g-4 align-items-center">
+    <div class="col-lg-8">
+      <span class="hero-badge">Flask MVP · Structured JSON First</span>
+      <h1 class="hero-title mt-3">高中英语教学 PPT 智能生成系统</h1>
+      <p class="hero-text">输入课程信息后，先生成结构化 slide JSON，再进入逐页编辑、PPTX 导出和授课稿导出，保持可编辑与可追溯。</p>
+      <div class="d-flex flex-wrap gap-2 mt-4">
+        <a href="{{ url_for('ppt.new_task') }}" class="btn btn-primary btn-lg">新建课件</a>
+        <a href="{{ url_for('ppt.from_manuscript') }}" class="btn btn-outline-primary btn-lg">文案转 PPT</a>
+        <a href="{{ url_for('ppt.tasks') }}" class="btn btn-outline-secondary btn-lg">查看任务</a>
+      </div>
+    </div>
+    <div class="col-lg-4">
+      <div class="hero-metrics">
+        <div class="metric-card">
+          <div class="metric-label">累计任务</div>
+          <div class="metric-value">{{ stats.task_count }}</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">累计课时分钟</div>
+          <div class="metric-value">{{ stats.total_minutes }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <section class="app-card p-4 h-100">
+      <h2 class="section-title">当前闭环</h2>
+      <div class="flow-grid mt-3">
+        <div class="flow-step">1. 输入课程信息</div>
+        <div class="flow-step">2. AI 生成或文案转 slide JSON</div>
+        <div class="flow-step">3. 逐页编辑与重生成</div>
+        <div class="flow-step">4. 导出 PPTX / DOCX</div>
+      </div>
+      <div class="info-strip mt-4">
+        当前版本优先保证教师备课流程可跑通，不直接依赖自由文本导出。
+      </div>
+    </section>
+  </div>
+  <div class="col-lg-5">
+    <section class="app-card p-4 h-100">
+      <h2 class="section-title">最近任务</h2>
+      {% if recent_tasks %}
+      <div class="list-group list-group-flush mt-3">
+        {% for task in recent_tasks %}
+        <a class="list-group-item recent-task" href="{{ url_for('ppt.edit_task', task_id=task.id) }}">
+          <div class="fw-semibold">{{ task.course_title }}</div>
+          <div class="small text-muted">{{ task.lesson_type }} · 更新于 {{ task.updated_at or '未记录' }}</div>
+        </a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-muted mt-3 mb-0">还没有课件任务。先创建一份阅读课或语法课试试。</p>
+      {% endif %}
+    </section>
+  </div>
+</div>
+{% endblock %}

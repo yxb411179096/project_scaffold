@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card app-card">
+  <div class="card-body">
+    <h1 class="h4 mb-2">新增教学资料</h1>
+    <p class="text-muted">
+      可上传教材、课文、教案、讲稿、词汇表、课堂表达等资料。第一版仅用于资料管理和普通检索，后续将接入 AI 生成流程。
+    </p>
+    <form method="post" enctype="multipart/form-data" class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">资料标题</label>
+        <input class="form-control" name="title" value="{{ form_data.title }}" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">资料类型</label>
+        <select class="form-select" name="doc_type">
+          {% for option in doc_type_options %}
+          <option value="{{ option }}" {% if form_data.doc_type == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">课型</label>
+        <select class="form-select" name="lesson_type">
+          {% for option in lesson_type_options %}
+          <option value="{{ option }}" {% if form_data.lesson_type == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">年级</label>
+        <select class="form-select" name="grade">
+          {% for option in grade_options %}
+          <option value="{{ option }}" {% if form_data.grade == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">教材版本</label>
+        <select class="form-select" name="textbook">
+          {% for option in textbook_options %}
+          <option value="{{ option }}" {% if form_data.textbook == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">册别</label>
+        <select class="form-select" name="volume">
+          {% for option in volume_options %}
+          <option value="{{ option }}" {% if form_data.volume == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">单元</label>
+        <select class="form-select" name="unit">
+          {% for option in unit_options %}
+          <option value="{{ option }}" {% if form_data.unit == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-12">
+        <label class="form-label">标签（逗号分隔）</label>
+        <input class="form-control" name="tags" value="{{ form_data.tags }}" placeholder="如：阅读,词汇,公开课">
+      </div>
+      <div class="col-12">
+        <label class="form-label">文本录入（与上传文件二选一，可同时填写后自动合并）</label>
+        <textarea class="form-control" name="raw_text" rows="8" placeholder="粘贴教学资料文本...">{{ form_data.raw_text }}</textarea>
+      </div>
+      <div class="col-12">
+        <label class="form-label">上传文件（txt / md / docx / pdf，最大 20MB）</label>
+        <input class="form-control" type="file" name="file" accept=".txt,.md,.docx,.pdf">
+      </div>
+      <div class="col-12 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">保存并解析</button>
+        <a href="{{ url_for('knowledge.knowledge_list') }}" class="btn btn-outline-secondary">返回列表</a>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

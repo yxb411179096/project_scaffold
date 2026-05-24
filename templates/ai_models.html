@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+  <div>
+    <div class="section-kicker">AI Model Settings</div>
+    <h1 class="section-title mb-1">模型配置中心</h1>
+    <div class="text-muted">管理本地 mock、Ollama，以及后续 DeepSeek / OpenAI 的运行配置。</div>
+  </div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-primary" href="{{ url_for('ppt.agent_bindings_settings') }}">Agent 模型绑定</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('ppt.tasks') }}">返回任务列表</a>
+  </div>
+</div>
+
+<section class="app-card p-4 mb-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div>
+      <div class="section-kicker">Runtime</div>
+      <h2 class="h5 mb-1">当前运行模型</h2>
+      <div class="text-muted">
+        来源：
+        {% if runtime_model.source == 'database' %}数据库默认模型{% elif runtime_model.source == 'env' %}.env 配置{% else %}mock 回退{% endif %}
+      </div>
+    </div>
+    <div class="runtime-model-grid">
+      <div class="meta-card">
+        <div class="meta-label">Provider</div>
+        <div class="meta-value">{{ runtime_model.provider }}</div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-label">Name</div>
+        <div class="meta-value">{{ runtime_model.name }}</div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-label">Model</div>
+        <div class="meta-value">{{ runtime_model.model_name or 'mock' }}</div>
+      </div>
+      <div class="meta-card">
+        <div class="meta-label">Timeout</div>
+        <div class="meta-value">{{ runtime_model.timeout }}s</div>
+      </div>
+    </div>
+  </div>
+  {% if runtime_model.resolution_detail %}
+  <div class="warning-note mt-3">{{ runtime_model.resolution_detail }}</div>
+  {% endif %}
+</section>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <section class="app-card p-4 h-100">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <div class="section-kicker">Configs</div>
+          <h2 class="h5 mb-0">模型配置列表</h2>
+        </div>
+        <span class="badge text-bg-light">{{ configs|length }} 条</span>
+      </div>
+
+      {% if configs %}
+      <div class="model-config-list">
+        {% for config in configs %}
+        <article class="model-config-card">
+          <div class="d-flex flex-wrap justify-content-between gap-3 mb-3">
+            <div>
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                <h3 class="h6 mb-0">{{ config.name }}</h3>
+                <span class="badge text-bg-light">{{ config.provider }}</span>
+                {% if config.is_default %}
+                <span class="badge text-bg-primary">默认模型</span>
+                {% endif %}
+                {% if not config.enabled %}
+                <span class="badge text-bg-secondary">已禁用</span>
+                {% endif %}
+              </div>
+              <div class="small text-muted">{{ config.purpose or '未填写用途说明' }}</div>
+            </div>
+            <div class="status-stack">
+              {% if config.status == 'available' %}
+              <span class="badge text-bg-success">{{ config.status_label }}</span>
+              {% elif config.status == 'unavailable' %}
+              <span class="badge text-bg-danger">{{ config.status_label }}</span>
+              {% else %}
+              <span class="badge text-bg-secondary">{{ config.status_label }}</span>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="model-config-meta">
+            <div><strong>Base URL:</strong> {{ config.base_url or '—' }}</div>
+            <div><strong>Model:</strong> {{ config.model_name or '—' }}</div>
+            <div><strong>Timeout:</strong> {{ config.timeout }}s</div>
+            <div><strong>API Key:</strong> <span class="model-secret">{{ config.api_key_masked or '—' }}</span></div>
+            <div><strong>最后测试:</strong> {{ config.last_tested_at or '未测试' }}</div>
+          </div>
+
+          {% if config.last_test_message %}
+          <div class="small text-muted mt-2">{{ config.last_test_message }}</div>
+          {% endif %}
+
+          <div class="d-flex flex-wrap gap-2 mt-3">
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('ppt.ai_models_settings', edit_id=config.id) }}">编辑</a>
+
+            <form method="post" action="{{ url_for('ppt.test_ai_model', config_id=config.id) }}">
+              <button class="btn btn-sm btn-outline-secondary" type="submit">测试连接</button>
+            </form>
+
+            <form method="post" action="{{ url_for('ppt.toggle_ai_model', config_id=config.id) }}">
+              <button class="btn btn-sm btn-outline-secondary" type="submit">
+                {% if config.enabled %}禁用{% else %}启用{% endif %}
+              </button>
+            </form>
+
+            {% if not config.is_default %}
+            <form method="post" action="{{ url_for('ppt.set_default_ai_model', config_id=config.id) }}">
+              <button class="btn btn-sm btn-outline-success" type="submit">设为默认</button>
+            </form>
+            {% endif %}
+
+            <form method="post" action="{{ url_for('ppt.delete_ai_model', config_id=config.id) }}" onsubmit="return confirm('确认删除该模型配置吗？');">
+              <button class="btn btn-sm btn-outline-danger" type="submit">删除</button>
+            </form>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="info-strip">当前还没有数据库模型配置。系统会继续使用 `.env` 或 mock 回退。</div>
+      {% endif %}
+    </section>
+  </div>
+
+  <div class="col-lg-5">
+    <section class="app-card p-4 h-100">
+      <div class="section-kicker">Editor</div>
+      <h2 class="h5 mb-3">{% if editing_config.id %}编辑模型配置{% else %}新增模型配置{% endif %}</h2>
+
+      <form method="post" action="{% if editing_config.id %}{{ url_for('ppt.update_ai_model', config_id=editing_config.id) }}{% else %}{{ url_for('ppt.create_ai_model') }}{% endif %}">
+        <label class="form-label">名称</label>
+        <input class="form-control mb-3" name="name" value="{{ editing_config.name }}">
+
+        <label class="form-label">Provider</label>
+        <select class="form-select mb-3" name="provider">
+          {% for provider in provider_options %}
+          <option value="{{ provider }}" {% if editing_config.provider == provider %}selected{% endif %}>{{ provider }}</option>
+          {% endfor %}
+        </select>
+
+        <label class="form-label">Base URL</label>
+        <input class="form-control mb-3" name="base_url" value="{{ editing_config.base_url }}" placeholder="http://127.0.0.1:11434">
+
+        <label class="form-label">Model Name</label>
+        <input class="form-control mb-3" name="model_name" value="{{ editing_config.model_name }}" placeholder="qwen2.5:7b">
+
+        <label class="form-label">API Key</label>
+        <input class="form-control mb-3" name="api_key" value="" placeholder="{% if editing_config.api_key_masked %}当前：{{ editing_config.api_key_masked }}{% else %}留空表示无 API Key{% endif %}">
+
+        <label class="form-label">Timeout（秒）</label>
+        <input class="form-control mb-3" name="timeout" value="{{ editing_config.timeout }}">
+
+        <label class="form-label">用途说明</label>
+        <input class="form-control mb-3" name="purpose" value="{{ editing_config.purpose }}" placeholder="例如：本地 Mac mini 主模型">
+
+        <div class="d-flex flex-wrap gap-4 mb-4">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="enabled" name="enabled" {% if editing_config.enabled %}checked{% endif %}>
+            <label class="form-check-label" for="enabled">启用</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="is_default" name="is_default" {% if editing_config.is_default %}checked{% endif %}>
+            <label class="form-check-label" for="is_default">设为默认</label>
+          </div>
+        </div>
+
+        <div class="d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">{% if editing_config.id %}保存修改{% else %}新增配置{% endif %}</button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('ppt.ai_models_settings') }}">清空</a>
+        </div>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}

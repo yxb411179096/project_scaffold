@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h1 class="h4 mb-1">教学资料知识库</h1>
+        <p class="text-muted mb-0">第一版支持资料上传、文本解析、元信息管理和关键词检索。</p>
+      </div>
+      <a class="btn btn-primary" href="{{ url_for('knowledge.knowledge_new') }}">新增资料</a>
+    </div>
+    <form method="get" class="row g-2">
+      <div class="col-md-4">
+        <input class="form-control" type="text" name="keyword" placeholder="关键词（标题 / 标签 / 摘要 / 正文）" value="{{ filters.keyword }}">
+      </div>
+      <div class="col-md-2">
+        <select class="form-select" name="doc_type">
+          <option value="">资料类型</option>
+          {% for option in doc_type_options %}
+          <option value="{{ option }}" {% if filters.doc_type == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select class="form-select" name="grade">
+          <option value="">年级</option>
+          {% for option in grade_options %}
+          <option value="{{ option }}" {% if filters.grade == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select class="form-select" name="textbook">
+          <option value="">教材版本</option>
+          {% for option in textbook_options %}
+          <option value="{{ option }}" {% if filters.textbook == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select class="form-select" name="status">
+          <option value="">状态</option>
+          {% for option in status_options %}
+          <option value="{{ option }}" {% if filters.status == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select class="form-select" name="volume">
+          <option value="">册别</option>
+          {% for option in volume_options %}
+          <option value="{{ option }}" {% if filters.volume == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select class="form-select" name="unit">
+          <option value="">单元</option>
+          {% for option in unit_options %}
+          <option value="{{ option }}" {% if filters.unit == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select class="form-select" name="lesson_type">
+          <option value="">课型</option>
+          {% for option in lesson_type_options %}
+          <option value="{{ option }}" {% if filters.lesson_type == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-5 d-flex gap-2">
+        <button class="btn btn-outline-primary" type="submit">筛选 / 搜索</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_list') }}">重置</a>
+      </div>
+    </form>
+  </div>
+</section>
+
+<section class="card app-card">
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead>
+        <tr>
+          <th>标题</th>
+          <th>资料类型</th>
+          <th>年级</th>
+          <th>教材</th>
+          <th>册别</th>
+          <th>单元</th>
+          <th>课型</th>
+          <th>标签</th>
+          <th>字数</th>
+          <th>状态</th>
+          <th>创建时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if docs %}
+          {% for doc in docs %}
+          <tr>
+            <td>{{ doc.title }}</td>
+            <td>{{ doc.doc_type or "—" }}</td>
+            <td>{{ doc.grade or "—" }}</td>
+            <td>{{ doc.textbook or "—" }}</td>
+            <td>{{ doc.volume or "—" }}</td>
+            <td>{{ doc.unit or "—" }}</td>
+            <td>{{ doc.lesson_type or "—" }}</td>
+            <td>{{ doc.tags or "—" }}</td>
+            <td>{{ doc.word_count }}</td>
+            <td>
+              {% if doc.status == "parsed" %}
+                <span class="badge text-bg-success">parsed</span>
+              {% elif doc.status == "failed" %}
+                <span class="badge text-bg-danger">failed</span>
+              {% else %}
+                <span class="badge text-bg-secondary">pending</span>
+              {% endif %}
+            </td>
+            <td>{{ doc.created_at }}</td>
+            <td>
+              <div class="d-flex flex-wrap gap-1">
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('knowledge.knowledge_detail', doc_id=doc.id) }}">查看</a>
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('knowledge.knowledge_download', doc_id=doc.id) }}">下载</a>
+                <form method="post" action="{{ url_for('knowledge.knowledge_reparse', doc_id=doc.id) }}">
+                  <button type="submit" class="btn btn-sm btn-outline-warning">重解析</button>
+                </form>
+                <form method="post" action="{{ url_for('knowledge.knowledge_delete', doc_id=doc.id) }}" onsubmit="return confirm('确定删除该资料吗？此操作不可恢复。')">
+                  <button type="submit" class="btn btn-sm btn-outline-danger">删除</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="12" class="text-center py-4 text-muted">暂无知识库资料，请先上传教学资料。</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

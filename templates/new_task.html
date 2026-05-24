@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-8">
+    <section class="app-card p-4 p-lg-5">
+      <div class="section-kicker">Create Lesson Task</div>
+      <h1 class="section-title mb-3">新建课件</h1>
+      <p class="text-muted mb-4">当前为 MVP 流程：提交课程信息后，系统会先生成 mock 结构化 slide JSON，再进入逐页编辑与导出。</p>
+
+      <form method="post">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">课题</label>
+            <input name="course_title" class="form-control" required placeholder="例如：Unit 3 Sports and Fitness">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">年级</label>
+            <select name="grade" class="form-select">
+              <option>高一</option>
+              <option>高二</option>
+              <option>高三</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">教材版本</label>
+            <input name="textbook" class="form-control" value="人教版">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">单元</label>
+            <input name="unit" class="form-control" placeholder="Unit 3">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">课型</label>
+            <select name="lesson_type" class="form-select">
+              {% for option in lesson_type_options %}
+              <option>{{ option }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">课时分钟</label>
+            <input name="duration" class="form-control" value="45">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">学生水平</label>
+            <select name="student_level" class="form-select">
+              {% for option in student_level_options %}
+              <option {% if option == '中等' %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">风格</label>
+            <select name="style" class="form-select">
+              {% for option in style_options %}
+              <option>{{ option }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">补充要求</label>
+            <textarea name="extra_requirements" class="form-control" rows="4" placeholder="例如：增加课堂互动，适合公开课展示，英文不要太难"></textarea>
+          </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-4">
+          <button class="btn btn-primary">生成课件</button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('ppt.tasks') }}">返回任务列表</a>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div class="col-lg-4">
+    <section class="app-card p-4 h-100">
+      <div class="section-kicker">MVP Scope</div>
+      <h2 class="section-title mb-3">本次生成包含</h2>
+      <div class="support-list">
+        <div class="support-item">Learning Objectives</div>
+        <div class="support-item">Key / Difficult Points</div>
+        <div class="support-item">Lead-in 与 Vocabulary Support</div>
+        <div class="support-item">Task Design 与 Classroom Interaction</div>
+        <div class="support-item">Summary / Homework / Blackboard Design</div>
+      </div>
+      <div class="info-strip mt-4">
+        导出前内容始终来自结构化 slide 数据，便于逐页编辑与后续真实 AI 接入。
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
