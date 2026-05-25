@@ -793,6 +793,11 @@ Each slide must include exactly these fields:
 Requirements:
 - visible_content must be an array of 2 to 4 short bullet strings.
 - Keep each slide task-focused and classroom-ready.
+- Do not output generic placeholders like "Complete the classroom task.".
+- Do not output empty "Step 1 / Step 2 / Step 3" style placeholders.
+- Reading lessons must include concrete reading tasks (e.g., fast reading or careful reading actions).
+- Writing lessons must include structure, useful expressions, and checklist-oriented task cues.
+- Grammar lessons must include examples, rule focus, and practice actions.
 - teacher_notes must be practical speaking prompts for the teacher.
 - interaction_type should be specific, such as Individual work, Pair work, Group discussion, or Teacher-student interaction.
 - Do not add markdown or explanations.
@@ -851,6 +856,8 @@ The slide must include exactly these fields:
 Requirements:
 - visible_content must be an array of 2 to 4 short bullet strings.
 - Keep the slide classroom-ready and easy to project.
+- Do not output generic placeholders like "Complete the classroom task.".
+- Do not output empty "Step 1 / Step 2 / Step 3" style placeholders.
 - teacher_notes should guide real teaching moves.
 - Do not add markdown or explanations.
 """

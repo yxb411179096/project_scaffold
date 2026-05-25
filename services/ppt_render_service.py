@@ -161,7 +161,22 @@ def _block_title(block, default):
 
 
 def _block_items(block, fallback=None):
-    return _limit_items((block or {}).get("items") or fallback or [], limit=5)
+    items = _limit_items((block or {}).get("items") or fallback or [], limit=5)
+    banned = {
+        "complete the classroom task.",
+        "complete the task.",
+        "please complete the task without specific instruction.",
+    }
+    cleaned = []
+    for item in items:
+        text = str(item or "").strip()
+        lowered = text.lower()
+        if lowered in banned:
+            continue
+        if re.fullmatch(r"step\s*[1-3]\s*[:：]?\s*$", lowered):
+            continue
+        cleaned.append(text)
+    return cleaned or ["Follow the slide task and prepare one clear answer."]
 
 
 def _add_teacher_hint(slide, slide_data, style):
@@ -633,14 +648,14 @@ def reading_task_layout(slide, slide_data, task, prs, style):
     secondary = _find_block(blocks, "checklist") or {"title": "Do This", "items": []}
 
     cards = [
-        (Inches(0.9), primary.get("items", [])[:1], "Step 1"),
-        (Inches(4.45), primary.get("items", [])[1:2] or secondary.get("items", [])[:1], "Step 2"),
-        (Inches(8.0), primary.get("items", [])[2:3] or secondary.get("items", [])[:1], "Step 3"),
+        (Inches(0.9), primary.get("items", [])[:1] or ["Read quickly and find the main idea."], "Task 1"),
+        (Inches(4.45), primary.get("items", [])[1:2] or ["Match headings with paragraphs."], "Task 2"),
+        (Inches(8.0), primary.get("items", [])[2:3] or ["Choose the best title and explain why."], "Task 3"),
     ]
     for left, items, title in cards:
         _add_panel(slide, left, Inches(1.95), Inches(2.95), Inches(3.15), style["surface"], line_color=style["soft"])
         _add_textbox(slide, left + Inches(0.22), Inches(2.18), Inches(2.4), Inches(0.28), title, size=14, color=style["primary"], bold=True)
-        _add_bullets(slide, items or ["Complete the task."], left + Inches(0.22), Inches(2.55), Inches(2.45), Inches(1.8), style, size=17)
+        _add_bullets(slide, items or ["Find one clear answer with text evidence."], left + Inches(0.22), Inches(2.55), Inches(2.45), Inches(1.8), style, size=17)
 
     _add_panel(slide, Inches(0.95), Inches(5.45), Inches(10.1), Inches(0.65), style["soft"])
     checklist_items = _block_items(secondary, ["Check your answers and prepare to share."])
@@ -687,7 +702,14 @@ def vocabulary_card_layout(slide, slide_data, task, prs, style):
     positions = [Inches(0.95), Inches(4.45), Inches(7.95)]
 
     for index, left in enumerate(positions):
-        block = blocks[index] if index < len(blocks) else {"title": f"Card {index + 1}", "items": ["Add one term."]}
+        block = blocks[index] if index < len(blocks) else {
+            "title": f"Word {index + 1}",
+            "items": [
+                f"Word: keyword_{index + 1}",
+                "Meaning: simple classroom meaning",
+                "Example: Use it in one sentence.",
+            ],
+        }
         _add_panel(slide, left, Inches(1.95), Inches(2.95), Inches(3.7), style["surface"], line_color=style["accent"])
         _add_panel(slide, left + Inches(0.18), Inches(2.12), Inches(0.72), Inches(0.38), style["accent"])
         _add_textbox(slide, left + Inches(0.34), Inches(2.18), Inches(0.4), Inches(0.18), str(index + 1), size=12, color=(255, 255, 255), bold=True, align=PP_ALIGN.CENTER)
@@ -747,9 +769,9 @@ def discussion_layout(slide, slide_data, task, prs, style):
     _set_background(slide, prs, style)
     _add_header_band(slide, slide_data, style)
     blocks = _get_content_blocks(slide_data)
-    prompt_block = _find_block(blocks, "discussion_prompt") or {"title": "Discuss", "items": slide_data.get("visible_content", [])[:1]}
-    roles_block = _find_block(blocks, "group_roles") or {"title": "How To Work", "items": slide_data.get("visible_content", [])[1:3]}
-    output_block = _find_block(blocks, "share_out") or {"title": "Output", "items": slide_data.get("visible_content", [])[3:]}
+    prompt_block = _find_block(blocks, "discussion_prompt") or {"title": "Topic", "items": slide_data.get("visible_content", [])[:1] or ["Discuss the key idea of the lesson."]}
+    roles_block = _find_block(blocks, "group_roles") or {"title": "Group Task", "items": slide_data.get("visible_content", [])[1:3] or ["List two supporting points.", "Decide one speaker."]}
+    output_block = _find_block(blocks, "share_out") or {"title": "Share", "items": slide_data.get("visible_content", [])[3:] or ["Share one clear group conclusion."]}
     support_block = _find_block(blocks, "expression_support") or {"title": "Useful Expressions", "items": slide_data.get("useful_expressions", [])}
 
     center = _add_panel(slide, Inches(4.7), Inches(2.3), Inches(3.6), Inches(2.0), style["surface"], line_color=style["accent"])
@@ -806,8 +828,8 @@ def homework_layout(slide, slide_data, task, prs, style):
     _set_background(slide, prs, style)
     _add_header_band(slide, slide_data, style)
     blocks = _get_content_blocks(slide_data)
-    required_block = _find_block(blocks, "required_task") or {"title": "Required", "items": slide_data.get("visible_content", [])[:2]}
-    extension_block = _find_block(blocks, "extension_task") or {"title": "Extension", "items": slide_data.get("visible_content", [])[2:4]}
+    required_block = _find_block(blocks, "required_task") or {"title": "基础作业", "items": slide_data.get("visible_content", [])[:2] or ["Review target words and one key sentence.", "Finish the guided task from class."]}
+    extension_block = _find_block(blocks, "extension_task") or {"title": "提升 / 拓展", "items": slide_data.get("visible_content", [])[2:4] or ["Write one extra paragraph with evidence.", "Prepare one question for next lesson."]}
     reminder_block = _find_block(blocks, "reminder") or {"title": "Reminder", "items": slide_data.get("visible_content", [])[4:]}
 
     for left, block, fill in [
@@ -816,7 +838,7 @@ def homework_layout(slide, slide_data, task, prs, style):
     ]:
         _add_panel(slide, left, Inches(1.85), Inches(5.1), Inches(3.2), fill, line_color=style["soft"])
         _add_textbox(slide, left + Inches(0.22), Inches(2.12), Inches(2.8), Inches(0.3), _block_title(block, "Task"), size=17, color=style["primary"], bold=True)
-        _add_bullets(slide, _block_items(block, ["Complete the homework task."]), left + Inches(0.22), Inches(2.58), Inches(4.5), Inches(2.15), style, size=17)
+        _add_bullets(slide, _block_items(block, ["Complete one specific homework product with clear quality target."]), left + Inches(0.22), Inches(2.58), Inches(4.5), Inches(2.15), style, size=17)
 
     _add_panel(slide, Inches(1.45), Inches(5.45), Inches(10.3), Inches(0.65), style["accent"])
     _add_textbox(

@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## 0.17.0
+- 优化 PPTX 多页面视觉布局与教学页面可用性，强化封面、目标、阅读任务、讨论、总结、作业、板书等页面的差异化呈现。
+- `ppt_render_service.py` 强化 Reading 任务卡、词汇卡、讨论任务卡、作业清单等默认文案，移除空泛占位句（如 `Complete the classroom task.` / 空 `Step 1/2/3`）。
+- `slide_content_agent.py` 增加输出约束：禁止空泛任务占位，要求 Reading / Writing / Grammar 分别输出更具体的课堂任务内容。
+- `mock_ai_service.py` 规则兜底内容升级：减少空泛步骤句，改为可执行的课堂任务描述。
+- 新增 `services/ppt_quality_check_service.py`，提供轻量级 PPT 质量检查（标题/内容长度/空页/占位句/课型结构覆盖/视觉风险提示）。
+- 编辑页新增“PPT质量检查”区域：显示总体状态、问题数量、按页问题与导出前风险提示（仅提示，不阻止导出）。
+- 网页预览样式增强：新增 `reading-task-preview`、`discussion-preview`、`writing-preview`、`summary-preview` 等视觉类，提升页面层级区分度。
+- 新增 `tests_round_017.py`，覆盖：空泛句识别、Reading/Writing/Grammar 兜底结构、布局函数差异化映射等回归。
+
 ## 0.16.0
 - 进行 Ollama/Qwen 稳定性专项优化，重点降低 `Model returned an empty response` 对主流程影响，保留 fallback_rule 作为兜底。
 - `services/llm_service.py` 增强失败调试信息与 trace 字段：记录 `endpoint`、`prompt_length`、`prompt_preview`、`timeout`、`temperature`、`num_predict`、`response_length`、`raw_response_keys`、`retry_count`、`raw_empty`、`json_extract_failed`、`first_attempt_failed`、`retry_attempted`、`retry_success`。

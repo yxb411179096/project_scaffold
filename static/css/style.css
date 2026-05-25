@@ -204,6 +204,26 @@ body {
   border-left: 4px solid var(--app-accent);
 }
 
+.reading-task-preview {
+  background: linear-gradient(180deg, #f9fcff 0%, #eef7ff 100%);
+  border-left: 4px solid #3273a7;
+}
+
+.discussion-preview {
+  background: linear-gradient(180deg, #fffaf2 0%, #fff4df 100%);
+  border-left: 4px solid #f4b266;
+}
+
+.writing-preview {
+  background: linear-gradient(180deg, #f6fbf7 0%, #eaf6ee 100%);
+  border-left: 4px solid #2f8f5b;
+}
+
+.summary-preview {
+  background: linear-gradient(180deg, #f8f8ff 0%, #eff0ff 100%);
+  border-left: 4px solid #6d74c9;
+}
+
 .preview-card-header {
   display: flex;
   justify-content: space-between;

@@ -46,6 +46,7 @@ from services.llm_service import (
     test_model_connection,
 )
 from services.ppt_render_service import export_pptx
+from services.ppt_quality_check_service import check_ppt_quality
 from services.textbook_catalog_service import build_catalog_course_title, enrich_lesson_request_with_catalog
 
 ppt_bp = Blueprint("ppt", __name__)
@@ -1122,6 +1123,7 @@ def edit_task(task_id):
         selected_slide=selected_slide,
         slide_json_preview=slide_json_preview,
         llm_call_logs=llm_call_logs,
+        quality_report=check_ppt_quality(task, slides) if slides else None,
     )
 
 

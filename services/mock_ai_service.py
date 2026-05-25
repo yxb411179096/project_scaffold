@@ -248,9 +248,9 @@ SLIDE_LIBRARY = {
         "title": "Task Design",
         "default_content": [
             "Task: complete a {final_product}.",
-            "Step 1: gather ideas from today's lesson.",
-            "Step 2: organize evidence and language support.",
-            "Step 3: present or submit your final answer.",
+            "Collect two key ideas and one supporting example from today's input.",
+            "Organize your answer with clear language and evidence.",
+            "Share your final response with a partner and revise one sentence.",
         ],
         "refresh_content": [
             "Final task: create a {final_product}.",
@@ -292,7 +292,7 @@ SLIDE_LIBRARY = {
         "refresh_content": [
             "Review: topic, key language, and final task.",
             "Complete the sentence: Today I can now...",
-            "Choose one strategy to keep using after class.",
+            "Name one strategy you will keep using after class.",
         ],
         "teacher_notes": "Let students summarize first, then use your summary to close gaps.",
         "refresh_notes": "Ask students to point back to the objectives and self-check their progress.",
