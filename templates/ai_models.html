@@ -105,6 +105,10 @@
               <button class="btn btn-sm btn-outline-secondary" type="submit">测试连接</button>
             </form>
 
+            <form method="post" action="{{ url_for('ppt.test_ai_model_json', config_id=config.id) }}">
+              <button class="btn btn-sm btn-outline-secondary" type="submit">测试 JSON 生成</button>
+            </form>
+
             <form method="post" action="{{ url_for('ppt.toggle_ai_model', config_id=config.id) }}">
               <button class="btn btn-sm btn-outline-secondary" type="submit">
                 {% if config.enabled %}禁用{% else %}启用{% endif %}

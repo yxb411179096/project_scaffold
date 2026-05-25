@@ -9,7 +9,7 @@ import json
 import re
 
 from services.agents.json_schema_checker import check_schema
-from services.llm_service import call_agent_json
+from services.llm_service import call_agent_json, trim_knowledge_context_for_prompt
 from services.knowledge_retrieval_service import format_knowledge_context_for_prompt
 
 
@@ -189,7 +189,7 @@ def _normalize_single_polished(payload, fallback):
 def _knowledge_context_block(knowledge_context):
     if not knowledge_context:
         return ""
-    return "\n\n" + format_knowledge_context_for_prompt(knowledge_context)
+    return "\n\n" + trim_knowledge_context_for_prompt(format_knowledge_context_for_prompt(knowledge_context), max_chars=4000)
 
 
 def _preserve_mode_note(lesson_request):

@@ -37,6 +37,7 @@ from services.agents import generate_rule_page_structure_detection
 from services.docx_export_service import export_docx
 from services.knowledge_retrieval_service import load_knowledge_context, retrieve_knowledge_context
 from services.llm_service import (
+    call_model_json_test,
     describe_runtime_model,
     generate_slides,
     generate_slides_from_manuscript,
@@ -1273,4 +1274,22 @@ def test_ai_model(config_id):
     result = test_model_connection(config)
     update_ai_model_test_result(config_id, result["status"], result["message"])
     flash(f"连接测试结果：{result['message']}")
+    return redirect(url_for("ppt.ai_models_settings", edit_id=config_id))
+
+
+@ppt_bp.route("/settings/ai-models/<int:config_id>/test-json", methods=["POST"])
+def test_ai_model_json(config_id):
+    config = get_ai_model_config(config_id)
+    if config is None:
+        abort(404)
+    result = call_model_json_test(config)
+    status = "available" if result.get("ok") else "unavailable"
+    summary = (
+        f"JSON测试: {'成功' if result.get('ok') else '失败'} | "
+        f"耗时={result.get('duration_ms', 0)}ms | "
+        f"解析={json.dumps(result.get('parsed') or {}, ensure_ascii=False)[:200]} | "
+        f"错误={result.get('error') or '无'}"
+    )
+    update_ai_model_test_result(config_id, status, summary)
+    flash(summary, "success" if result.get("ok") else "warning")
     return redirect(url_for("ppt.ai_models_settings", edit_id=config_id))

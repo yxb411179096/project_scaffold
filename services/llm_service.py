@@ -28,6 +28,29 @@ class LLMServiceError(Exception):
     """Raised when a model call fails or returns invalid JSON."""
 
 
+QWEN_JSON_SYSTEM_INSTRUCTION = (
+    "You are a JSON generation engine.\n"
+    "Return only valid JSON.\n"
+    "Do not return markdown.\n"
+    "Do not return explanations.\n"
+    "Do not return empty content.\n"
+    "Do not include thinking process.\n"
+    "Do not use ```json fences.\n"
+    "If information is missing, fill reasonable values according to the lesson request."
+)
+
+QWEN_AGENT_MIN_TOKENS = {
+    "lesson_design_agent": 4096,
+    "ppt_outline_agent": 4096,
+    "slide_content_agent": 6000,
+    "language_polish_agent": 4096,
+    "manuscript_analyzer_agent": 4096,
+    "lesson_structure_extractor_agent": 5000,
+    "slide_splitter_agent": 6000,
+    "content_compressor_agent": 5000,
+}
+
+
 def _normalized_env_provider():
     provider = str(LLM_PROVIDER or "mock").strip().lower()
     return provider or "mock"
@@ -220,6 +243,34 @@ def _append_trace_event(mode, stage, detail, **extra):
     return trace
 
 
+def trim_knowledge_context_for_prompt(context, max_chars=4000):
+    """Trim formatted knowledge context to keep prompts stable and bounded."""
+
+    text = str(context or "").strip()
+    if not text:
+        return ""
+    max_chars = max(600, int(max_chars or 4000))
+    blocks = [block.strip() for block in text.split("【知识库参考资料 ") if block.strip()]
+    if len(blocks) <= 1:
+        return text[:max_chars]
+
+    head = blocks[0]
+    kept = [head]
+    total = len(head)
+    for block in blocks[1:6]:
+        section = "【知识库参考资料 " + block
+        if "内容：" in section:
+            prefix, body = section.split("内容：", 1)
+            body = body[:800]
+            section = f"{prefix}内容：{body}"
+        projected = total + len(section) + 2
+        if projected > max_chars:
+            break
+        kept.append(section)
+        total = projected
+    return "\n\n".join(kept)[:max_chars]
+
+
 def record_mock_usage(stage, detail="Rule-based generation used."):
     logger.info("LLM stage=%s mode=mock detail=%s", stage, detail)
     return _append_trace_event("mock", stage, detail)
@@ -230,7 +281,7 @@ def record_fallback(stage, detail):
     return _append_trace_event("fallback", stage, detail)
 
 
-def _record_call_log(task_id, agent_name, provider, model_name, status, duration_ms, error_message="", detail=""):
+def _record_call_log(task_id, agent_name, provider, model_name, status, duration_ms, error_message="", detail="", **extra):
     normalized_task_id = _normalize_task_id(task_id)
     create_llm_call_log(
         normalized_task_id,
@@ -252,6 +303,7 @@ def _record_call_log(task_id, agent_name, provider, model_name, status, duration
         status=status,
         duration_ms=int(duration_ms or 0),
         error_message=error_message or "",
+        **extra,
     )
 
 
@@ -286,24 +338,41 @@ def _qwen3_suffix():
     return "Do not output thinking process. Return only the final JSON."
 
 
+def _extract_first_json_value(text):
+    cleaned = _strip_code_fence(text)
+    if not cleaned:
+        raise LLMServiceError("Model returned an empty response.")
+    cleaned = cleaned.strip()
+    decoder = json.JSONDecoder()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", cleaned, flags=re.I)
+    if fence_match:
+        candidate = fence_match.group(1).strip()
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+    for index, char in enumerate(cleaned):
+        if char not in "[{":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(cleaned[index:])
+            return payload
+        except json.JSONDecodeError:
+            continue
+    raise LLMServiceError("Model returned invalid JSON.")
+
+
 def _parse_json_payload(text):
     cleaned = _strip_code_fence(text)
     if not cleaned:
         raise LLMServiceError("Model returned an empty response.")
-
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        decoder = json.JSONDecoder()
-        for index, char in enumerate(cleaned):
-            if char not in "[{":
-                continue
-            try:
-                payload, _ = decoder.raw_decode(cleaned[index:])
-                return payload
-            except json.JSONDecodeError:
-                continue
-    raise LLMServiceError("Model returned invalid JSON.")
+    return _extract_first_json_value(cleaned)
 
 
 def _is_retryable_ollama_error(exc):
@@ -311,9 +380,35 @@ def _is_retryable_ollama_error(exc):
     return "empty response" in message or "invalid json" in message
 
 
-def _call_ollama_payload_with_retry(model_config, system_prompt, user_prompt, timeout, temperature, max_tokens, json_required):
+def _prompt_preview(text, limit=300):
+    return re.sub(r"\s+", " ", str(text or "")).strip()[:limit]
+
+
+def _merge_qwen_system_prompt(system_prompt):
+    base = str(system_prompt or "").strip()
+    if not base:
+        return QWEN_JSON_SYSTEM_INSTRUCTION
+    return f"{QWEN_JSON_SYSTEM_INSTRUCTION}\n\n{base}"
+
+
+def _call_ollama_payload_with_retry(
+    agent_name,
+    model_config,
+    system_prompt,
+    user_prompt,
+    timeout,
+    temperature,
+    max_tokens,
+    json_required,
+):
+    retry_count = 0
+    first_attempt_failed = False
+    retry_attempted = False
+    retry_success = False
+    first_error_message = ""
     try:
-        return _call_ollama_payload(
+        payload, meta = _call_ollama_payload(
+            agent_name,
             model_config,
             system_prompt,
             user_prompt,
@@ -322,7 +417,18 @@ def _call_ollama_payload_with_retry(model_config, system_prompt, user_prompt, ti
             max_tokens,
             json_required,
         )
+        meta.update(
+            {
+                "retry_count": retry_count,
+                "first_attempt_failed": first_attempt_failed,
+                "retry_attempted": retry_attempted,
+                "retry_success": retry_success,
+            }
+        )
+        return payload, meta
     except LLMServiceError as exc:
+        first_error_message = str(exc)
+        first_attempt_failed = True
         if not _is_retryable_ollama_error(exc):
             raise
         logger.warning(
@@ -330,12 +436,22 @@ def _call_ollama_payload_with_retry(model_config, system_prompt, user_prompt, ti
             model_config.get("model_name"),
         )
 
+    retry_count = 1
+    retry_attempted = True
     retry_timeout = max(240, int(timeout or 120))
-    retry_temperature = min(max(float(temperature or 0.3), 0.2), 0.4)
-    retry_max_tokens = max(int(max_tokens or 0), 4096)
-    retry_system_prompt = f"{str(system_prompt or '').strip()}\n\n{_qwen3_suffix()}\n\n{_retry_instruction_text()}".strip()
-    retry_user_prompt = f"{str(user_prompt or '').strip()}\n\n{_retry_instruction_text()}".strip()
-    return _call_ollama_payload(
+    retry_temperature = min(max(float(temperature or 0.3), 0.2), 0.35)
+    retry_max_tokens = max(int(max_tokens or 0), QWEN_AGENT_MIN_TOKENS.get(agent_name, 4096))
+    retry_system_prompt = f"{str(system_prompt or '').strip()}\n\n{_retry_instruction_text()}".strip()
+    raw_retry_prompt = str(user_prompt or "").strip()
+    knowledge_part = ""
+    if "【知识库参考资料" in raw_retry_prompt:
+        prefix, suffix = raw_retry_prompt.split("【知识库参考资料", 1)
+        knowledge_part = trim_knowledge_context_for_prompt("【知识库参考资料" + suffix, max_chars=1500)
+        raw_retry_prompt = prefix.strip()
+    retry_user_prompt = f"{raw_retry_prompt}\n\n{knowledge_part}\n\nReturn valid JSON only. No explanation.".strip()
+    retry_user_prompt = retry_user_prompt[:6500]
+    payload, meta = _call_ollama_payload(
+        agent_name,
         model_config,
         retry_system_prompt,
         retry_user_prompt,
@@ -344,31 +460,47 @@ def _call_ollama_payload_with_retry(model_config, system_prompt, user_prompt, ti
         retry_max_tokens,
         json_required,
     )
+    retry_success = True
+    meta.update(
+        {
+            "retry_count": retry_count,
+            "first_attempt_failed": first_attempt_failed,
+            "retry_attempted": retry_attempted,
+            "retry_success": retry_success,
+            "first_error_message": first_error_message,
+        }
+    )
+    return payload, meta
 
 
-def _call_ollama_payload(model_config, system_prompt, user_prompt, timeout, temperature, max_tokens, json_required):
+def _call_ollama_payload(agent_name, model_config, system_prompt, user_prompt, timeout, temperature, max_tokens, json_required):
     base_url = str(model_config.get("base_url") or "").rstrip("/")
     endpoint = f"{base_url}/api/generate"
     model_name = str(model_config.get("model_name") or "").strip()
-    is_qwen3 = "qwen3" in model_name.lower()
-    if is_qwen3:
+    lowered_model = model_name.lower()
+    is_qwen = "qwen" in lowered_model
+    if is_qwen:
         timeout = max(240, int(timeout or 0))
-        temperature = min(max(float(temperature or 0.3), 0.2), 0.4)
-        max_tokens = max(int(max_tokens or 0), 4096)
-        system_prompt = f"{str(system_prompt or '').strip()}\n\n{_qwen3_suffix()}".strip()
+        temperature = min(max(float(temperature or 0.3), 0.2), 0.35)
+        max_tokens = max(int(max_tokens or 0), QWEN_AGENT_MIN_TOKENS.get(agent_name, 4096))
+        system_prompt = _merge_qwen_system_prompt(system_prompt)
     payload = {
         "model": model_config.get("model_name"),
-        "system": str(system_prompt or "").strip(),
         "prompt": str(user_prompt or "").strip(),
         "stream": False,
         "options": {
             "temperature": temperature,
+            "top_p": 0.9,
+            "repeat_penalty": 1.05,
             "num_predict": max_tokens,
         },
     }
+    if str(system_prompt or "").strip():
+        payload["system"] = str(system_prompt or "").strip()
     if json_required:
         payload["format"] = "json"
 
+    prompt_length = len(str(payload.get("system") or "")) + len(str(payload.get("prompt") or ""))
     with requests.Session() as session:
         session.trust_env = False
         response = session.post(
@@ -378,7 +510,24 @@ def _call_ollama_payload(model_config, system_prompt, user_prompt, timeout, temp
         )
     response.raise_for_status()
     response_json = response.json()
-    return _parse_json_payload(response_json.get("response"))
+    raw_response = response_json.get("response")
+    response_length = len(str(raw_response or ""))
+    if not str(raw_response or "").strip():
+        raise LLMServiceError("Model returned an empty response.")
+    parsed = _parse_json_payload(raw_response)
+    meta = {
+        "endpoint": endpoint,
+        "prompt_length": prompt_length,
+        "prompt_preview": _prompt_preview(payload.get("prompt")),
+        "timeout": timeout,
+        "temperature": temperature,
+        "num_predict": max_tokens,
+        "response_length": response_length,
+        "raw_response_keys": sorted(list(response_json.keys())) if isinstance(response_json, dict) else [],
+        "raw_empty": response_length == 0,
+        "json_extract_failed": False,
+    }
+    return parsed, meta
 
 
 def _call_model_json_with_config(
@@ -400,7 +549,8 @@ def _call_model_json_with_config(
 
     try:
         if provider == "ollama":
-            result = _call_ollama_payload_with_retry(
+            result, meta = _call_ollama_payload_with_retry(
+                agent_name,
                 model_config,
                 system_prompt,
                 user_prompt,
@@ -424,6 +574,14 @@ def _call_model_json_with_config(
             duration_ms,
             "",
             detail or f"{provider}:{model_name}",
+            retry_count=meta.get("retry_count") if provider == "ollama" else None,
+            prompt_length=meta.get("prompt_length") if provider == "ollama" else None,
+            response_length=meta.get("response_length") if provider == "ollama" else None,
+            raw_empty=meta.get("raw_empty") if provider == "ollama" else None,
+            json_extract_failed=meta.get("json_extract_failed") if provider == "ollama" else None,
+            retry_attempted=meta.get("retry_attempted") if provider == "ollama" else None,
+            retry_success=meta.get("retry_success") if provider == "ollama" else None,
+            first_attempt_failed=meta.get("first_attempt_failed") if provider == "ollama" else None,
         )
         logger.info(
             "LLM agent=%s provider=%s model=%s status=%s duration_ms=%s",
@@ -436,6 +594,7 @@ def _call_model_json_with_config(
         return result
     except (requests.RequestException, ValueError, LLMServiceError) as exc:
         duration_ms = int((time.perf_counter() - started_at) * 1000)
+        prompt_length = len(str(system_prompt or "")) + len(str(user_prompt or ""))
         _record_call_log(
             task_id,
             agent_name,
@@ -445,14 +604,29 @@ def _call_model_json_with_config(
             duration_ms,
             str(exc),
             detail or str(exc),
+            endpoint=f"{str(model_config.get('base_url') or '').rstrip('/')}/api/generate" if provider == "ollama" else "",
+            prompt_length=prompt_length,
+            prompt_preview=_prompt_preview(user_prompt),
+            timeout=timeout,
+            temperature=temperature,
+            num_predict=max_tokens,
+            retry_count=1 if _is_retryable_ollama_error(exc) else 0,
+            raw_empty="empty response" in str(exc).lower(),
+            json_extract_failed="invalid json" in str(exc).lower(),
         )
         logger.warning(
-            "LLM agent=%s provider=%s model=%s status=failed duration_ms=%s error=%s",
+            "LLM agent=%s provider=%s model=%s status=failed duration_ms=%s endpoint=%s prompt_length=%s timeout=%s temp=%s num_predict=%s error=%s prompt_preview=%s",
             agent_name,
             provider,
             model_name,
             duration_ms,
+            f"{str(model_config.get('base_url') or '').rstrip('/')}/api/generate" if provider == "ollama" else "",
+            prompt_length,
+            timeout,
+            temperature,
+            max_tokens,
             exc,
+            _prompt_preview(user_prompt),
         )
         raise LLMServiceError(str(exc)) from exc
 
@@ -510,27 +684,21 @@ def get_model_for_agent(agent_name):
     }
 
 
-def _is_qwen3_model(model_config):
+def _is_qwen_model(model_config):
     model_name = str((model_config or {}).get("model_name") or "").strip().lower()
-    return "qwen3" in model_name
+    return "qwen" in model_name
 
 
 def _apply_qwen3_runtime_profile(agent_name, model_config, timeout, temperature, max_tokens):
-    if not _is_qwen3_model(model_config):
+    if not _is_qwen_model(model_config):
         return timeout, temperature, max_tokens
 
     timeout_floor = 240
-    token_floor = 4096
-    if agent_name == "slide_content_agent":
+    token_floor = QWEN_AGENT_MIN_TOKENS.get(agent_name, 4096)
+    if agent_name in {"slide_content_agent", "slide_splitter_agent", "lesson_structure_extractor_agent"}:
         timeout_floor = 300
-        token_floor = 6000
-    elif agent_name in {"lesson_structure_extractor_agent", "slide_splitter_agent"}:
-        timeout_floor = 300
-        token_floor = 6000
-    elif agent_name == "content_compressor_agent":
-        token_floor = 5000
     timeout = max(int(timeout or 0), timeout_floor)
-    temperature = min(max(float(temperature or 0.3), 0.2), 0.4)
+    temperature = min(max(float(temperature or 0.3), 0.2), 0.35)
     max_tokens = max(int(max_tokens or 0), token_floor)
     return timeout, temperature, max_tokens
 
@@ -562,6 +730,14 @@ def call_agent_json(agent_name, prompt, fallback_fn=None):
     user_prompt = prompt.get("user_prompt") or ""
     task_id = prompt.get("task_id")
     stage_note = str(prompt.get("stage_note") or "").strip()
+
+    if len(system_prompt) + len(user_prompt) > 12000:
+        if "【知识库参考资料" in user_prompt:
+            prefix, suffix = user_prompt.split("【知识库参考资料", 1)
+            compact = trim_knowledge_context_for_prompt("【知识库参考资料" + suffix, max_chars=2500)
+            user_prompt = f"{prefix.strip()}\n\n{compact}\n\n[Knowledge context trimmed for stability.]"
+        else:
+            user_prompt = user_prompt[:9000]
 
     strategy = get_model_for_agent(agent_name)
     mode = strategy.get("mode") or "rule_only"
@@ -761,6 +937,58 @@ def _log_generation_summary():
         trace.get("provider"),
         stages or "none",
     )
+
+
+def call_model_json_test(model_config):
+    """Run a compact JSON generation test for the selected model config."""
+
+    provider = str(model_config.get("provider") or "").strip().lower()
+    if provider != "ollama":
+        return {
+            "status": "unavailable",
+            "ok": False,
+            "duration_ms": 0,
+            "message": f"{provider} 暂未实现 JSON 生成测试。",
+            "raw_preview": "",
+            "parsed": {},
+            "error": f"{provider} 暂未实现 JSON 生成测试。",
+        }
+
+    started = time.perf_counter()
+    try:
+        payload, meta = _call_ollama_payload(
+            "json_test",
+            model_config,
+            QWEN_JSON_SYSTEM_INSTRUCTION,
+            "Return JSON only: {\"status\":\"ok\",\"model\":\"<current model>\",\"message\":\"hello\"}",
+            max(10, int(model_config.get("timeout") or 60)),
+            0.2,
+            256,
+            True,
+        )
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        if isinstance(payload, dict):
+            payload.setdefault("model", str(model_config.get("model_name") or ""))
+        return {
+            "status": "available",
+            "ok": True,
+            "duration_ms": duration_ms,
+            "message": "JSON 生成测试成功。",
+            "raw_preview": meta.get("prompt_preview") or "",
+            "parsed": payload,
+            "error": "",
+        }
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        return {
+            "status": "unavailable",
+            "ok": False,
+            "duration_ms": duration_ms,
+            "message": f"JSON 生成测试失败：{exc}",
+            "raw_preview": "",
+            "parsed": {},
+            "error": str(exc),
+        }
 
 
 def test_model_connection(model_config):

@@ -244,10 +244,11 @@ def run():
             retry_state["count"] += 1
             if retry_state["count"] == 1:
                 raise llm_service.LLMServiceError("Model returned an empty response.")
-            return {"ok": True}
+            return {"ok": True}, {"prompt_length": 4, "response_length": 8}
 
         llm_service._call_ollama_payload = _fake_ollama_payload
         retry_result = llm_service._call_ollama_payload_with_retry(
+            "lesson_design_agent",
             {"model_name": "qwen3:30b", "base_url": "http://127.0.0.1:11434"},
             "system",
             "user",
@@ -257,7 +258,7 @@ def run():
             True,
         )
         assert retry_state["count"] == 2
-        assert retry_result == {"ok": True}
+        assert retry_result[0] == {"ok": True}
 
         retry_state["count"] = 0
 

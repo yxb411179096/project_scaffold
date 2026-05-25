@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 0.16.0
+- 进行 Ollama/Qwen 稳定性专项优化，重点降低 `Model returned an empty response` 对主流程影响，保留 fallback_rule 作为兜底。
+- `services/llm_service.py` 增强失败调试信息与 trace 字段：记录 `endpoint`、`prompt_length`、`prompt_preview`、`timeout`、`temperature`、`num_predict`、`response_length`、`raw_response_keys`、`retry_count`、`raw_empty`、`json_extract_failed`、`first_attempt_failed`、`retry_attempted`、`retry_success`。
+- 增强 JSON 提取能力：支持纯 JSON、数组、```json 代码块、前后带说明文字的 JSON，并优先提取第一个合法对象/数组。
+- 增强重试策略：首轮空响应或 JSON 失败自动 retry 一次；retry 使用更短 prompt，知识库上下文进一步压缩，失败后再走 fallback_rule。
+- 新增 `trim_knowledge_context_for_prompt(context, max_chars=4000)`，默认控制知识库上下文长度；prompt 过长时自动压缩，retry 阶段进一步压到约 1500 字。
+- Qwen 系列请求参数统一优化：`stream=false`、`top_p=0.9`、`repeat_penalty=1.05`，并按 Agent 应用 `num_predict` 下限（如 `slide_content_agent>=6000`）。
+- 新增模型配置中心“测试 JSON 生成”按钮与接口 `/settings/ai-models/<id>/test-json`，可快速验证模型是否能稳定返回可解析 JSON。
+- 优化 8 个核心 Agent 的 knowledge_context 注入长度控制，避免 prompt 过大导致空响应，且不影响原有 fallback 逻辑。
+- 新增 `tests_round_016.py`，覆盖 Qwen JSON 指令、token 下限、context 截断、空响应 retry、JSON 提取兼容、模型 JSON 测试接口等回归。
+
 ## 0.15.5
 - 新增 `services/textbook_catalog_service.py`，引入基础教材目录映射并优先覆盖人教版必修册别单元元信息；已内置：
   - 必修二 Unit 1 Cultural Heritage

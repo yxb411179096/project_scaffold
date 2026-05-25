@@ -8,7 +8,7 @@ compression while preserving the same slide schema and fallback behavior.
 import json
 import re
 
-from services.llm_service import call_agent_json
+from services.llm_service import call_agent_json, trim_knowledge_context_for_prompt
 from services.knowledge_retrieval_service import format_knowledge_context_for_prompt
 from services.mock_ai_service import normalize_lesson_type
 
@@ -286,7 +286,7 @@ def _normalize_slides(payload, fallback):
 def _knowledge_context_block(knowledge_context):
     if not knowledge_context:
         return ""
-    return "\n\n" + format_knowledge_context_for_prompt(knowledge_context)
+    return "\n\n" + trim_knowledge_context_for_prompt(format_knowledge_context_for_prompt(knowledge_context), max_chars=4000)
 
 
 def _compressor_prompts(slides, lesson_request, fallback, knowledge_context=None):
