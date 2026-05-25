@@ -334,6 +334,7 @@ def init_db():
                 course_title TEXT NOT NULL,
                 grade TEXT,
                 textbook TEXT,
+                volume TEXT,
                 unit TEXT,
                 lesson_type TEXT,
                 duration INTEGER,
@@ -479,6 +480,7 @@ def init_db():
 
         ensure_column(conn, "ppt_slides", "slide_json", "TEXT")
         ensure_column(conn, "lesson_tasks", "generation_mode", "TEXT")
+        ensure_column(conn, "lesson_tasks", "volume", "TEXT")
         ensure_column(conn, "lesson_tasks", "manuscript_generation_strategy", "TEXT")
         ensure_column(conn, "lesson_tasks", "manuscript_preserve_completion_mode", "TEXT")
         ensure_column(conn, "lesson_tasks", "manuscript_preserve_polish_mode", "TEXT")
@@ -988,6 +990,7 @@ def update_lesson_task(task_id, payload):
             SET course_title=?,
                 grade=?,
                 textbook=?,
+                volume=?,
                 unit=?,
                 lesson_type=?,
                 duration=?,
@@ -1006,6 +1009,7 @@ def update_lesson_task(task_id, payload):
                 merged.get("course_title"),
                 merged.get("grade"),
                 merged.get("textbook"),
+                merged.get("volume"),
                 merged.get("unit"),
                 merged.get("lesson_type"),
                 _normalize_int(merged.get("duration"), default=45, minimum=20, maximum=120),

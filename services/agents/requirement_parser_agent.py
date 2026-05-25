@@ -5,6 +5,8 @@ Future replacement: this file can call a real LLM to normalize noisy user
 input into a stable lesson request schema.
 """
 
+from services.textbook_catalog_service import enrich_lesson_request_with_catalog
+
 
 def _clean_text(value):
     return str(value or "").strip()
@@ -43,6 +45,7 @@ def parse_requirement(form_data):
         "task_id": form_data.get("task_id") or form_data.get("id"),
         "grade": _clean_text(form_data.get("grade")) or "高一",
         "textbook": _clean_text(form_data.get("textbook")) or "人教版",
+        "volume": _clean_text(form_data.get("volume")) or "必修一",
         "unit": _clean_text(form_data.get("unit")) or "Unit 1",
         "topic": topic,
         # Keep an alias for compatibility with the current template-based mock service.
@@ -64,4 +67,4 @@ def parse_requirement(form_data):
         "knowledge_top_k": _safe_top_k(form_data.get("knowledge_top_k"), default=5),
         "knowledge_context_json": _clean_text(form_data.get("knowledge_context_json")),
     }
-    return lesson_request
+    return enrich_lesson_request_with_catalog(lesson_request)

@@ -11,7 +11,7 @@
         <div class="row g-3">
           <div class="col-md-6">
             <label class="form-label">课题</label>
-            <input name="course_title" class="form-control" required placeholder="例如：Unit 3 Sports and Fitness">
+            <input name="course_title" class="form-control" required placeholder="例如：Unit 3 Reading Lesson">
           </div>
           <div class="col-md-3">
             <label class="form-label">年级</label>
@@ -24,6 +24,14 @@
           <div class="col-md-3">
             <label class="form-label">教材版本</label>
             <input name="textbook" class="form-control" value="人教版">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">册别</label>
+            <select name="volume" class="form-select">
+              {% for option in volume_options %}
+              <option {% if option == '必修一' %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
           </div>
           <div class="col-md-4">
             <label class="form-label">单元</label>

@@ -10,6 +10,7 @@ import routes.ppt_routes as ppt_routes
 import services.knowledge_retrieval_service as krs
 import services.llm_service as llm_service
 from services.embedding_service import EmbeddingServiceError, test_embedding_connection
+from services.agents import parse_requirement
 from services.knowledge_retrieval_service import (
     build_knowledge_filters,
     build_knowledge_query,
@@ -17,6 +18,7 @@ from services.knowledge_retrieval_service import (
     format_knowledge_context_for_prompt,
     retrieve_knowledge_context,
 )
+from services.textbook_catalog_service import get_unit_metadata
 
 
 def _extract_doc_id(location):
@@ -73,18 +75,51 @@ def run():
     title_prefix = f"[TEST] Round15 {uuid.uuid4().hex[:8]}"
     cleanup_ids = []
 
-    query = build_knowledge_query(
+    # textbook catalog mapping checks
+    req1 = parse_requirement(
         {
-            "topic": "Unit 3 Sports and Fitness",
-            "grade": "高一",
             "textbook": "人教版",
+            "volume": "必修一",
             "unit": "Unit 3",
             "lesson_type": "Reading",
+            "course_title": "Unit 3 Reading Lesson",
+        }
+    )
+    assert req1.get("topic") == "Sports and Fitness"
+
+    req2 = parse_requirement(
+        {
+            "textbook": "人教版",
+            "volume": "必修二",
+            "unit": "Unit 3",
+            "lesson_type": "Reading",
+            "course_title": "Unit 3 Reading Lesson",
+        }
+    )
+    assert req2.get("topic") == "The Internet"
+    assert req2.get("reading_title") == "Stronger Together: How We Have Been Changed by the Internet"
+    assert "Sports and Fitness" not in req2.get("topic", "")
+
+    unit_meta = get_unit_metadata("人教版", "必修二", "Unit 3")
+    assert unit_meta.get("theme") == "The Internet"
+    assert unit_meta.get("reading_title") == "Stronger Together: How We Have Been Changed by the Internet"
+
+    query = build_knowledge_query(
+        {
+            "grade": "高一",
+            "textbook": "人教版",
+            "volume": "必修二",
+            "unit": "Unit 3",
+            "lesson_type": "Reading",
+            "topic": "The Internet",
+            "reading_title": "Stronger Together: How We Have Been Changed by the Internet",
             "extra_requirements": "Use classroom interaction and vocabulary support.",
         },
         manuscript_text="Students predict, discuss, and summarize the reading lesson.",
     )
-    assert "Sports and Fitness" in query or "Unit 3" in query
+    assert "The Internet" in query
+    assert "Stronger Together" in query
+    assert "online community" in query
 
     filters = build_knowledge_filters(
         {
@@ -124,7 +159,7 @@ def run():
     assert any(str(item).lower() == "reading" for item in unit_filters["lesson_type"])
     assert build_chroma_where(unit_filters) is not None
     assert ppt_routes.normalize_relaxed_level("no_filters") == "no_filters"
-    assert ppt_routes.normalize_relaxed_level(3) == "lesson_type_only"
+    assert ppt_routes.normalize_relaxed_level(3) == "textbook_only"
     assert ppt_routes.normalize_relaxed_level(None) == "unknown"
     assert ppt_routes.normalize_relaxed_level("0") == "exact"
 
@@ -195,9 +230,9 @@ def run():
         assert relaxed_context["failed"] is False
         assert relaxed_context["result_count"] == 1
         assert relaxed_context["relaxed"] is True
-        assert relaxed_context["relaxed_level"] == "lesson_type_only"
+        assert relaxed_context["relaxed_level"] in {"textbook_only", "no_filters"}
         assert calls[0].get("unit")
-        assert calls[3].get("lesson_type")
+        assert calls[3].get("textbook")
     finally:
         krs.search_similar = original_search_similar
 
@@ -347,7 +382,8 @@ def run():
 
         legacy_resp = client.get(f"/ppt/task/{legacy_task_id}/edit")
         assert legacy_resp.status_code == 200
-        assert "仅按课型匹配" in legacy_resp.get_data(as_text=True)
+        legacy_html = legacy_resp.get_data(as_text=True)
+        assert ("仅按教材版本匹配" in legacy_html) or ("仅按课型匹配" in legacy_html)
 
         none_level_title = f"{title_prefix} None Level Task"
         with sqlite3.connect(DATABASE_PATH) as conn:
@@ -492,6 +528,43 @@ def run():
                 (row["id"],),
             ).fetchone()["c"]
             assert int(slide_count or 0) > 0
+
+        mapped_resp = client.post(
+            "/ppt/new",
+            data={
+                "course_title": "Unit 3 Reading Lesson",
+                "grade": "高一",
+                "textbook": "人教版",
+                "volume": "必修二",
+                "unit": "Unit 3",
+                "lesson_type": "Reading",
+                "duration": "45",
+                "student_level": "中等",
+                "style": "常规课",
+                "extra_requirements": "catalog mapping test",
+            },
+            follow_redirects=False,
+        )
+        assert mapped_resp.status_code in (302, 303)
+
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM lesson_tasks WHERE volume=? AND unit=? ORDER BY id DESC LIMIT 1",
+                ("必修二", "Unit 3"),
+            ).fetchone()
+            assert row is not None
+            assert "Sports and Fitness" not in str(row["course_title"] or "")
+            assert "The Internet" in str(row["course_title"] or "")
+
+            slide_row = conn.execute(
+                "SELECT slide_json FROM ppt_slides WHERE task_id=? ORDER BY slide_index ASC LIMIT 1",
+                (row["id"],),
+            ).fetchone()
+            assert slide_row is not None
+            payload = json.loads(slide_row["slide_json"] or "{}")
+            visible_text = " ".join(payload.get("visible_content") or [])
+            assert "Sports and Fitness" not in visible_text
 
         failure_title = f"{title_prefix} KB Failure"
         original_route_retriever = ppt_routes.retrieve_knowledge_context

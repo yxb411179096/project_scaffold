@@ -7,6 +7,7 @@ import re
 import time
 
 from services.embedding_service import EmbeddingServiceError
+from services.textbook_catalog_service import enrich_lesson_request_with_catalog
 from services.vector_store_service import VectorStoreError, build_chroma_where, search_similar
 
 
@@ -105,14 +106,16 @@ def _json_safe_context(context):
 def build_knowledge_query(lesson_request, manuscript_text=None):
     """Build a semantic search query from the lesson request and manuscript context."""
 
-    lesson_request = lesson_request or {}
+    lesson_request = enrich_lesson_request_with_catalog(lesson_request or {})
     explicit_query = _clean_text(lesson_request.get("knowledge_query"))
     if explicit_query:
         return explicit_query
 
     topic = _clean_field(lesson_request.get("topic") or lesson_request.get("course_title"))
+    reading_title = _clean_field(lesson_request.get("reading_title"))
     grade = _clean_field(lesson_request.get("grade"))
     textbook = _clean_field(lesson_request.get("textbook"))
+    volume = _clean_field(lesson_request.get("volume"))
     unit = _normalize_unit(lesson_request.get("unit"))
     lesson_type = _normalize_lesson_type(lesson_request.get("lesson_type")) or "Reading"
     extra = _clean_text(lesson_request.get("extra_requirements"))
@@ -164,11 +167,18 @@ def build_knowledge_query(lesson_request, manuscript_text=None):
         base += f", {grade}"
     if textbook:
         base += f", {textbook}"
+    if volume:
+        base += f", {volume}"
     if unit:
         base += f", {unit}"
 
     parts = [base]
+    if reading_title:
+        parts.append(reading_title)
     parts.extend(descriptors[:5])
+    topic_keywords = lesson_request.get("topic_keywords") or []
+    if isinstance(topic_keywords, list):
+        parts.extend([_clean_text(item) for item in topic_keywords[:6] if _clean_text(item)])
 
     if extra:
         parts.extend([piece.strip() for piece in re.split(r"[，,。；;、\n]+", extra) if piece.strip()][:3])
@@ -203,11 +213,12 @@ def build_knowledge_filters(lesson_request):
     return filters
 
 
-def _build_relaxed_filters(filters):
-    relaxed = dict(filters or {})
-    for key in ("unit", "volume", "doc_type"):
-        relaxed.pop(key, None)
-    return relaxed
+def _pick_filters(filters, keys):
+    selected = {}
+    for key in keys:
+        if key in filters and filters.get(key):
+            selected[key] = filters[key]
+    return selected
 
 
 def _normalize_result(result):
@@ -247,10 +258,10 @@ def retrieve_knowledge_context(lesson_request, query=None, top_k=5, manuscript_t
     requested_top_k = _safe_int(top_k or lesson_request.get("knowledge_top_k") or 5, default=5)
     base_filters = build_knowledge_filters(lesson_request)
     stages = [
-        ("exact", dict(base_filters)),
-        ("without_unit", _build_relaxed_filters(dict(base_filters))),
-        ("without_volume", {k: v for k, v in dict(base_filters).items() if k != "volume"}),
-        ("lesson_type_only", {k: v for k, v in dict(base_filters).items() if k == "lesson_type"}),
+        ("exact", _pick_filters(dict(base_filters), ("textbook", "volume", "unit", "lesson_type"))),
+        ("without_lesson_type", _pick_filters(dict(base_filters), ("textbook", "volume", "unit"))),
+        ("without_unit", _pick_filters(dict(base_filters), ("textbook", "volume"))),
+        ("textbook_only", _pick_filters(dict(base_filters), ("textbook",))),
         ("no_filters", {}),
     ]
     if not base_filters:

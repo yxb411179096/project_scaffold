@@ -23,6 +23,14 @@
             <input name="textbook" class="form-control" value="{{ form_data.textbook }}">
           </div>
           <div class="col-md-4">
+            <label class="form-label">册别</label>
+            <select name="volume" class="form-select">
+              {% for option in volume_options %}
+              <option value="{{ option }}" {% if form_data.volume == option %}selected{% endif %}>{{ option }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
             <label class="form-label">单元</label>
             <input name="unit" class="form-control" value="{{ form_data.unit }}" placeholder="Unit 2">
           </div>

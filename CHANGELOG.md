@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## 0.15.5
+- 新增 `services/textbook_catalog_service.py`，引入基础教材目录映射并优先覆盖人教版必修册别单元元信息；已内置：
+  - 必修二 Unit 1 Cultural Heritage
+  - 必修二 Unit 2 Wildlife Protection
+  - 必修二 Unit 3 The Internet
+  - 必修二 Unit 4 History and Traditions
+  - 必修二 Unit 5 Music
+- 对 `人教版 + 必修二 + Unit 3 + Reading` 增加明确映射：
+  - `topic=The Internet`
+  - `reading_title=Stronger Together: How We Have Been Changed by the Internet`
+  - `reading_skill=Read headlines`
+- `requirement_parser_agent` 增加 `volume` 字段并接入教材目录增强，避免 Unit 3 默认错配到必修一的 `Sports and Fitness`。
+- 新建课件与文案转 PPT 路由新增 `volume` 入库与表单项，创建任务时会基于教材目录生成规范课题标题，用于导出文件名和后续流程一致化。
+- 知识库检索 `build_knowledge_query()` 优化：当目录命中时优先注入 `reading_title`、主题关键词（如 `online community / internet / digital life / reading headlines`）和册别信息。
+- 知识库过滤放宽顺序调整为：
+  - `textbook + volume + unit + lesson_type`
+  - `textbook + volume + unit`
+  - `textbook + volume`
+  - `textbook only`
+  - `no_filters`（最后兜底）
+- 编辑页知识库参考命中仍保留 `volume / unit` 展示，便于快速识别误命中册别与单元。
+- 更新 `tests_round_015.py`：新增必修一/必修二 Unit 3 映射断言、`Stronger Together` 断言、检索 query 断言，以及“必修二 Unit 3 不应生成 Sports and Fitness”回归检查。
+
 ## 0.15.4
 - 修复编辑页知识库参考资料中的“查看原资料”按钮 endpoint 错误，`knowledge.detail` 已改为真实存在的 `knowledge.knowledge_detail`，避免 `/ppt/task/<id>/edit` 再次触发 500。
 

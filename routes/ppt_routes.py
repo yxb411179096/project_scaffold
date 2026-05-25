@@ -45,6 +45,7 @@ from services.llm_service import (
     test_model_connection,
 )
 from services.ppt_render_service import export_pptx
+from services.textbook_catalog_service import build_catalog_course_title, enrich_lesson_request_with_catalog
 
 ppt_bp = Blueprint("ppt", __name__)
 LESSON_TYPE_OPTIONS = [
@@ -53,6 +54,14 @@ LESSON_TYPE_OPTIONS = [
     "Writing",
     "Listening and Speaking",
     "Revision",
+]
+VOLUME_OPTIONS = [
+    "必修一",
+    "必修二",
+    "必修三",
+    "选择性必修一",
+    "选择性必修二",
+    "选择性必修三",
 ]
 MANUSCRIPT_LESSON_TYPE_OPTIONS = LESSON_TYPE_OPTIONS + ["Other"]
 STUDENT_LEVEL_OPTIONS = ["基础薄弱", "中等", "较好"]
@@ -453,6 +462,7 @@ def blank_manuscript_form():
         "course_title": "",
         "grade": "高一",
         "textbook": "人教版",
+        "volume": "必修一",
         "unit": "",
         "lesson_type": "Reading",
         "student_level": "中等",
@@ -467,6 +477,27 @@ def blank_manuscript_form():
         "knowledge_top_k": "5",
         "knowledge_query": "",
     }
+
+
+def _derive_catalog_title(form_or_task):
+    base = {
+        "course_title": str(form_or_task.get("course_title") or "").strip(),
+        "textbook": str(form_or_task.get("textbook") or "").strip(),
+        "volume": str(form_or_task.get("volume") or "").strip(),
+        "unit": str(form_or_task.get("unit") or "").strip(),
+        "lesson_type": str(form_or_task.get("lesson_type") or "").strip(),
+        "topic": str(form_or_task.get("topic") or "").strip(),
+    }
+    enriched = enrich_lesson_request_with_catalog(base)
+    derived_title = build_catalog_course_title(enriched)
+    # If title is empty or generic, prefer deterministic catalog title.
+    current = base["course_title"]
+    if not current or current.lower().startswith("unit "):
+        return derived_title
+    # For known unit mapping, avoid stale/wrong unit topic from old placeholders.
+    if enriched.get("topic") and current and enriched.get("topic").lower() not in current.lower():
+        return derived_title
+    return current
 
 
 def _form_knowledge_enabled(form):
@@ -516,14 +547,16 @@ def normalize_relaxed_level(value):
         lowered = normalized.lower()
         level_map = {
             "0": "exact",
-            "1": "without_unit",
-            "2": "without_volume",
-            "3": "lesson_type_only",
+            "1": "without_lesson_type",
+            "2": "without_unit",
+            "3": "textbook_only",
             "4": "no_filters",
             "exact": "exact",
+            "without_lesson_type": "without_lesson_type",
             "without_unit": "without_unit",
-            "without_volume": "without_volume",
-            "lesson_type_only": "lesson_type_only",
+            "textbook_only": "textbook_only",
+            "without_volume": "without_unit",
+            "lesson_type_only": "textbook_only",
             "no_filters": "no_filters",
         }
         return level_map.get(lowered, normalized)
@@ -533,11 +566,11 @@ def normalize_relaxed_level(value):
         if int(value) == 0:
             return "exact"
         if int(value) == 1:
-            return "without_unit"
+            return "without_lesson_type"
         if int(value) == 2:
-            return "without_volume"
+            return "without_unit"
         if int(value) == 3:
-            return "lesson_type_only"
+            return "textbook_only"
         if int(value) == 4:
             return "no_filters"
         return str(int(value))
@@ -547,9 +580,9 @@ def normalize_relaxed_level(value):
 def _relaxed_level_label(value):
     labels = {
         "exact": "精确匹配",
+        "without_lesson_type": "已放宽课型",
         "without_unit": "已放宽单元",
-        "without_volume": "已放宽册别",
-        "lesson_type_only": "仅按课型匹配",
+        "textbook_only": "仅按教材版本匹配",
         "no_filters": "无筛选语义检索",
         "unknown": "未知",
     }
@@ -724,6 +757,7 @@ def favicon():
 def new_task():
     if request.method == "POST":
         form = request.form.to_dict()
+        form["course_title"] = _derive_catalog_title(form)
         use_knowledge_base = _form_knowledge_enabled(request.form)
         knowledge_top_k = _knowledge_top_k_from_form(request.form)
         knowledge_query = str(request.form.get("knowledge_query") or "").strip()
@@ -731,13 +765,14 @@ def new_task():
             cur = conn.execute(
                 """
                 INSERT INTO lesson_tasks
-                (course_title, grade, textbook, unit, lesson_type, duration, student_level, style, extra_requirements, use_knowledge_base, knowledge_query, knowledge_top_k, knowledge_context_json, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (course_title, grade, textbook, volume, unit, lesson_type, duration, student_level, style, extra_requirements, use_knowledge_base, knowledge_query, knowledge_top_k, knowledge_context_json, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     form.get("course_title"),
                     form.get("grade"),
                     form.get("textbook"),
+                    form.get("volume"),
                     form.get("unit"),
                     form.get("lesson_type"),
                     int(form.get("duration") or 45),
@@ -789,6 +824,7 @@ def new_task():
     return render_template(
         "new_task.html",
         lesson_type_options=LESSON_TYPE_OPTIONS,
+        volume_options=VOLUME_OPTIONS,
         student_level_options=STUDENT_LEVEL_OPTIONS,
         style_options=STYLE_OPTIONS,
     )
@@ -800,6 +836,7 @@ def from_manuscript():
 
     if request.method == "POST":
         form_data.update(request.form.to_dict())
+        form_data["course_title"] = _derive_catalog_title(form_data)
         form_data["use_knowledge_base"] = _form_knowledge_enabled(request.form)
         form_data["knowledge_top_k"] = str(_knowledge_top_k_from_form(request.form))
         form_data["knowledge_query"] = str(request.form.get("knowledge_query") or "").strip()
@@ -814,6 +851,7 @@ def from_manuscript():
                 "from_manuscript.html",
                 form_data=form_data,
                 lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
+                volume_options=VOLUME_OPTIONS,
                 student_level_options=STUDENT_LEVEL_OPTIONS,
                 style_options=STYLE_OPTIONS,
                 manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
@@ -831,6 +869,7 @@ def from_manuscript():
                     "from_manuscript.html",
                     form_data=form_data,
                     lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
+                    volume_options=VOLUME_OPTIONS,
                     student_level_options=STUDENT_LEVEL_OPTIONS,
                     style_options=STYLE_OPTIONS,
                     manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
@@ -845,6 +884,7 @@ def from_manuscript():
                 "from_manuscript.html",
                 form_data=form_data,
                 lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
+                volume_options=VOLUME_OPTIONS,
                 student_level_options=STUDENT_LEVEL_OPTIONS,
                 style_options=STYLE_OPTIONS,
                 manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
@@ -887,13 +927,14 @@ def from_manuscript():
             cur = conn.execute(
                 """
                 INSERT INTO lesson_tasks
-                (course_title, grade, textbook, unit, lesson_type, duration, student_level, style, extra_requirements, use_knowledge_base, knowledge_query, knowledge_top_k, knowledge_context_json, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (course_title, grade, textbook, volume, unit, lesson_type, duration, student_level, style, extra_requirements, use_knowledge_base, knowledge_query, knowledge_top_k, knowledge_context_json, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     form_data.get("course_title") or "文案转 PPT 课件",
                     form_data.get("grade"),
                     form_data.get("textbook"),
+                    form_data.get("volume"),
                     form_data.get("unit"),
                     form_data.get("lesson_type"),
                     int(form_data.get("duration") or 45),
@@ -950,6 +991,7 @@ def from_manuscript():
                 "from_manuscript.html",
                 form_data=form_data,
                 lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
+                volume_options=VOLUME_OPTIONS,
                 student_level_options=STUDENT_LEVEL_OPTIONS,
                 style_options=STYLE_OPTIONS,
                 manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
@@ -967,6 +1009,7 @@ def from_manuscript():
         "from_manuscript.html",
         form_data=form_data,
         lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
+        volume_options=VOLUME_OPTIONS,
         student_level_options=STUDENT_LEVEL_OPTIONS,
         style_options=STYLE_OPTIONS,
         manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
