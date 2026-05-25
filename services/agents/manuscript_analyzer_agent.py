@@ -9,6 +9,7 @@ import json
 import re
 
 from services.llm_service import call_agent_json
+from services.knowledge_retrieval_service import format_knowledge_context_for_prompt
 from services.mock_ai_service import normalize_lesson_type
 
 
@@ -322,7 +323,13 @@ def _normalize_analysis(payload, fallback):
     }
 
 
-def _analysis_prompts(lesson_request, manuscript_text, fallback):
+def _knowledge_context_block(knowledge_context):
+    if not knowledge_context:
+        return ""
+    return "\n\n" + format_knowledge_context_for_prompt(knowledge_context)
+
+
+def _analysis_prompts(lesson_request, manuscript_text, fallback, knowledge_context=None):
     system_prompt = """
 You analyze senior high school English manuscripts and turn them into structured metadata.
 Return JSON only.
@@ -338,6 +345,8 @@ Manuscript:
 
 Fallback analysis:
 {json.dumps(fallback, ensure_ascii=False, indent=2)}
+
+{_knowledge_context_block(knowledge_context)}
 
 Return one JSON object with exactly these keys:
 - manuscript_type
@@ -361,11 +370,16 @@ Requirements:
     return system_prompt.strip(), user_prompt.strip()
 
 
-def analyze_manuscript(lesson_request, manuscript_text):
+def analyze_manuscript(lesson_request, manuscript_text, knowledge_context=None):
     """Analyze a manuscript and return structural metadata."""
 
     fallback = _build_rule_analysis(lesson_request, manuscript_text)
-    system_prompt, user_prompt = _analysis_prompts(lesson_request, manuscript_text, fallback)
+    system_prompt, user_prompt = _analysis_prompts(
+        lesson_request,
+        manuscript_text,
+        fallback,
+        knowledge_context=knowledge_context,
+    )
     payload = call_agent_json(
         "manuscript_analyzer_agent",
         {

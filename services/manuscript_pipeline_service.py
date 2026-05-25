@@ -5,6 +5,8 @@ separate route for turning user manuscripts into structured, editable slide
 JSON.
 """
 
+import json
+
 from services.agents import (
     analyze_manuscript,
     check_schema,
@@ -26,6 +28,7 @@ from services.agents import (
     review_activities,
     split_manuscript_into_slides,
 )
+from services.knowledge_retrieval_service import load_knowledge_context, retrieve_knowledge_context
 from services.llm_service import record_fallback, record_rule_only_agent
 from services.pipeline_service import ensure_non_empty_slides
 
@@ -47,6 +50,41 @@ def _resolve_strategy(raw_task, page_structure):
 
 def _record_common_rule_stage(agent_name, lesson_request, detail):
     record_rule_only_agent(agent_name, lesson_request.get("task_id"), detail)
+
+
+def _resolve_knowledge_context(lesson_request, manuscript_text=None):
+    if not lesson_request.get("use_knowledge_base"):
+        return None
+
+    existing = load_knowledge_context(
+        lesson_request.get("knowledge_context_json") or lesson_request.get("knowledge_context")
+    )
+    if existing:
+        lesson_request["knowledge_context_json"] = json.dumps(existing, ensure_ascii=False)
+        lesson_request["knowledge_query"] = existing.get("query") or lesson_request.get("knowledge_query") or ""
+        lesson_request["knowledge_top_k"] = existing.get("top_k") or lesson_request.get("knowledge_top_k") or 5
+        if not existing.get("failed") and int(existing.get("result_count") or 0) > 0:
+            lesson_request["knowledge_context"] = existing
+            return existing
+        record_fallback("knowledge_retrieval", existing.get("error") or "未找到已索引资料。")
+        lesson_request.pop("knowledge_context", None)
+        return existing
+
+    context = retrieve_knowledge_context(
+        lesson_request,
+        query=lesson_request.get("knowledge_query"),
+        top_k=lesson_request.get("knowledge_top_k") or 5,
+        manuscript_text=manuscript_text,
+    )
+    lesson_request["knowledge_context_json"] = json.dumps(context, ensure_ascii=False)
+    lesson_request["knowledge_query"] = context.get("query") or lesson_request.get("knowledge_query") or ""
+    lesson_request["knowledge_top_k"] = context.get("top_k") or lesson_request.get("knowledge_top_k") or 5
+    if not context.get("failed") and int(context.get("result_count") or 0) > 0:
+        lesson_request["knowledge_context"] = context
+    else:
+        record_fallback("knowledge_retrieval", context.get("error") or "未找到已索引资料。")
+        lesson_request.pop("knowledge_context", None)
+    return context
 
 
 def _preserve_completion_mode(lesson_request):
@@ -127,9 +165,9 @@ def _append_preserve_closure_slides(slides, lesson_request, manuscript_text, man
     return augmented
 
 
-def _finalize_preserve_slides(ppt_json, lesson_request):
+def _finalize_preserve_slides(ppt_json, lesson_request, knowledge_context=None):
     if _preserve_polish_mode(lesson_request) == "follow_agent_strategy":
-        ppt_json = polish_language(ppt_json, lesson_request)
+        ppt_json = polish_language(ppt_json, lesson_request, knowledge_context=knowledge_context)
     else:
         _record_common_rule_stage(
             "language_polish_agent",
@@ -151,8 +189,8 @@ def _finalize_preserve_slides(ppt_json, lesson_request):
     return ppt_json
 
 
-def _finalize_restructure_slides(ppt_json, lesson_request):
-    ppt_json = polish_language(ppt_json, lesson_request)
+def _finalize_restructure_slides(ppt_json, lesson_request, knowledge_context=None):
+    ppt_json = polish_language(ppt_json, lesson_request, knowledge_context=knowledge_context)
     ppt_json = review_activities(ppt_json, lesson_request)
     _record_common_rule_stage(
         "activity_review_agent",
@@ -187,6 +225,7 @@ def _run_preserve_pipeline(lesson_request, manuscript_text, page_structure, use_
         page_structure,
         rule_slides,
     )
+    knowledge_context = _resolve_knowledge_context(lesson_request, manuscript_text)
     if str(lesson_request.get("lesson_type") or "").strip() == "Other":
         lesson_request["lesson_type"] = manuscript_analysis.get("detected_lesson_type") or "Reading"
 
@@ -203,7 +242,7 @@ def _run_preserve_pipeline(lesson_request, manuscript_text, page_structure, use_
         lesson_request,
         "Compressed preserve-mode pages with local rule-based logic.",
     )
-    ppt_json = _finalize_preserve_slides(ppt_json, lesson_request)
+    ppt_json = _finalize_preserve_slides(ppt_json, lesson_request, knowledge_context=knowledge_context)
     return {
         "lesson_request": lesson_request,
         "manuscript_analysis": manuscript_analysis,
@@ -214,10 +253,11 @@ def _run_preserve_pipeline(lesson_request, manuscript_text, page_structure, use_
 
 
 def _run_restructure_pipeline(lesson_request, manuscript_text, use_rule_only=False):
+    knowledge_context = _resolve_knowledge_context(lesson_request, manuscript_text)
     if use_rule_only:
         manuscript_analysis = generate_rule_manuscript_analysis(lesson_request, manuscript_text)
     else:
-        manuscript_analysis = analyze_manuscript(lesson_request, manuscript_text)
+        manuscript_analysis = analyze_manuscript(lesson_request, manuscript_text, knowledge_context=knowledge_context)
     if str(lesson_request.get("lesson_type") or "").strip() == "Other":
         lesson_request["lesson_type"] = manuscript_analysis.get("detected_lesson_type") or "Reading"
 
@@ -234,15 +274,17 @@ def _run_restructure_pipeline(lesson_request, manuscript_text, use_rule_only=Fal
             lesson_request,
             manuscript_text,
             manuscript_analysis,
+            knowledge_context=knowledge_context,
         )
         ppt_json = split_manuscript_into_slides(
             lesson_request,
             manuscript_analysis,
             lesson_structure,
+            knowledge_context=knowledge_context,
         )
-        ppt_json = compress_slide_content(ppt_json, lesson_request)
+        ppt_json = compress_slide_content(ppt_json, lesson_request, knowledge_context=knowledge_context)
 
-    ppt_json = _finalize_restructure_slides(ppt_json, lesson_request)
+    ppt_json = _finalize_restructure_slides(ppt_json, lesson_request, knowledge_context=knowledge_context)
     return {
         "lesson_request": lesson_request,
         "manuscript_analysis": manuscript_analysis,
@@ -438,6 +480,7 @@ def regenerate_slide_from_manuscript(raw_task, current_slide):
     )
     strategy = _resolve_strategy(raw_task, page_structure)
     lesson_request["manuscript_generation_strategy"] = strategy
+    knowledge_context = _resolve_knowledge_context(lesson_request, manuscript_text)
 
     if strategy == "preserve_original_pages":
         result = _run_preserve_pipeline(
@@ -452,13 +495,18 @@ def regenerate_slide_from_manuscript(raw_task, current_slide):
         slide["layout_plan"] = plan_layout_for_slide(slide, lesson_request)
         return check_schema(slide)
 
-    manuscript_analysis = analyze_manuscript(lesson_request, manuscript_text)
+    manuscript_analysis = analyze_manuscript(
+        lesson_request,
+        manuscript_text,
+        knowledge_context=knowledge_context,
+    )
     if str(lesson_request.get("lesson_type") or "").strip() == "Other":
         lesson_request["lesson_type"] = manuscript_analysis.get("detected_lesson_type") or "Reading"
     lesson_structure = extract_lesson_structure(
         lesson_request,
         manuscript_text,
         manuscript_analysis,
+        knowledge_context=knowledge_context,
     )
     target_index = int(current_slide.get("slide_index") or 1)
     neighbor_context = _neighbor_slide_context(raw_task.get("_all_slides") or [], target_index)
@@ -469,9 +517,10 @@ def regenerate_slide_from_manuscript(raw_task, current_slide):
         lesson_structure,
         current_slide,
         neighbor_context=neighbor_context,
+        knowledge_context=knowledge_context,
     )
-    slide = compress_slide_content(slide, lesson_request)
-    slide = polish_language(slide, lesson_request)
+    slide = compress_slide_content(slide, lesson_request, knowledge_context=knowledge_context)
+    slide = polish_language(slide, lesson_request, knowledge_context=knowledge_context)
     slide["layout_plan"] = plan_layout_for_slide(slide, lesson_request)
     slide = check_schema(slide)
     return slide

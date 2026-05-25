@@ -9,8 +9,18 @@
       </div>
       <div class="d-flex gap-2 flex-wrap">
         <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_list') }}">返回列表</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_semantic_search_page') }}">语义检索</a>
         <a class="btn btn-outline-primary" href="{{ url_for('knowledge.knowledge_download', doc_id=doc.id) }}">下载原文件</a>
         <a class="btn btn-outline-info" href="{{ url_for('knowledge.knowledge_text', doc_id=doc.id) }}">查看纯文本</a>
+        <form method="post" action="{{ url_for('knowledge.knowledge_index', doc_id=doc.id) }}">
+          <button type="submit" class="btn btn-outline-success">建立向量索引</button>
+        </form>
+        <form method="post" action="{{ url_for('knowledge.knowledge_reindex', doc_id=doc.id) }}">
+          <button type="submit" class="btn btn-outline-success">重新索引</button>
+        </form>
+        <form method="post" action="{{ url_for('knowledge.knowledge_delete_index', doc_id=doc.id) }}">
+          <button type="submit" class="btn btn-outline-warning">删除索引</button>
+        </form>
         <form method="post" action="{{ url_for('knowledge.knowledge_reparse', doc_id=doc.id) }}">
           <button type="submit" class="btn btn-outline-warning">重新解析</button>
         </form>
@@ -37,8 +47,27 @@
         <span class="badge text-bg-secondary">pending</span>
         {% endif %}
       </div>
+      <div class="col-md-4"><strong>向量状态：</strong>
+        {% if doc.embedding_status == "indexed" %}
+        <span class="badge text-bg-success">indexed</span>
+        {% elif doc.embedding_status == "indexing" %}
+        <span class="badge text-bg-warning">indexing</span>
+        {% elif doc.embedding_status == "failed" %}
+        <span class="badge text-bg-danger">failed</span>
+        {% else %}
+        <span class="badge text-bg-secondary">not_indexed</span>
+        {% endif %}
+      </div>
+      <div class="col-md-4"><strong>Chunk 数：</strong>{{ doc.chunk_count }}</div>
+      <div class="col-md-4"><strong>向量集合：</strong>{{ doc.vector_collection or "—" }}</div>
+      <div class="col-md-6"><strong>索引时间：</strong>{{ doc.indexed_at or "—" }}</div>
       <div class="col-md-6"><strong>创建时间：</strong>{{ doc.created_at }}</div>
       <div class="col-md-6"><strong>更新时间：</strong>{{ doc.updated_at }}</div>
+      {% if doc.embedding_error %}
+      <div class="col-12">
+        <div class="alert alert-danger mt-2 mb-0"><strong>索引错误：</strong>{{ doc.embedding_error }}</div>
+      </div>
+      {% endif %}
     </div>
   </div>
 </section>
@@ -67,10 +96,37 @@
     <h2 class="h6">解析文本预览</h2>
     <pre style="white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto;">{{ preview_text or "暂无文本" }}</pre>
     {% if is_truncated %}
-    <p class="text-muted mb-0">仅显示前 5000 字，完整文本已保存。</p>
+      <p class="text-muted mb-0">仅显示前 5000 字，完整文本已保存。</p>
     {% endif %}
     {% if doc.status == "failed" %}
     <div class="alert alert-danger mt-3 mb-0"><strong>解析错误：</strong>{{ doc.error_message or "未知错误" }}</div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card app-card mt-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h2 class="h6 mb-0">Chunk 预览</h2>
+      <span class="text-muted">共 {{ chunks|length }} 块</span>
+    </div>
+    {% if chunks %}
+    <div class="d-grid gap-3">
+      {% for chunk in chunks %}
+      <div class="border rounded-3 p-3 bg-light">
+        <div class="d-flex justify-content-between flex-wrap gap-2 mb-2">
+          <div><strong>#{{ chunk.chunk_index }}</strong> · {{ chunk.char_count }} 字符 · 约 {{ chunk.token_estimate }} tokens</div>
+          <code class="small">{{ chunk.chroma_id }}</code>
+        </div>
+        {% if chunk.chunk_summary %}
+        <div class="small text-muted mb-2">{{ chunk.chunk_summary }}</div>
+        {% endif %}
+        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">{{ chunk.chunk_text }}</pre>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="info-strip">当前资料还没有切块索引，点击“建立向量索引”即可生成。</div>
     {% endif %}
   </div>
 </section>

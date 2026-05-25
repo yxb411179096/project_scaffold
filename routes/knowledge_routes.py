@@ -8,8 +8,10 @@ from config import KNOWLEDGE_TEXT_DIR, KNOWLEDGE_UPLOAD_DIR
 from models.database import (
     create_knowledge_document,
     delete_knowledge_document,
+    delete_knowledge_chunks_by_document,
     get_knowledge_document,
     now,
+    list_knowledge_chunks_by_document,
     query_knowledge_documents,
     update_knowledge_document,
 )
@@ -22,6 +24,13 @@ from services.document_parse_service import (
     generate_basic_summary,
     save_parsed_text,
 )
+from services.embedding_service import EmbeddingServiceError, test_embedding_connection
+from services.knowledge_index_service import (
+    delete_knowledge_document_index,
+    index_knowledge_document,
+    search_knowledge_semantic,
+)
+from services.vector_store_service import VectorStoreError
 
 
 knowledge_bp = Blueprint("knowledge", __name__)
@@ -88,6 +97,28 @@ def _load_full_text(doc):
     return str(doc.get("parsed_text") or "")
 
 
+def _optional_int(value, default=5, minimum=1, maximum=20):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    number = max(minimum, number)
+    if maximum is not None:
+        number = min(maximum, number)
+    return number
+
+
+def _semantic_filters_from_request(req):
+    return {
+        "doc_type": str(req.args.get("doc_type") or "").strip(),
+        "grade": str(req.args.get("grade") or "").strip(),
+        "textbook": str(req.args.get("textbook") or "").strip(),
+        "volume": str(req.args.get("volume") or "").strip(),
+        "unit": str(req.args.get("unit") or "").strip(),
+        "lesson_type": str(req.args.get("lesson_type") or "").strip(),
+    }
+
+
 def _build_doc_payload(form_data, source_type, parsed_text, text_file_path, file_name="", original_file_path="", status="parsed", error_message=""):
     title = str(form_data.get("title") or "").strip()
     doc_type = str(form_data.get("doc_type") or "").strip() or "其他"
@@ -113,6 +144,8 @@ def _build_doc_payload(form_data, source_type, parsed_text, text_file_path, file
         "embedding_status": "not_indexed",
         "chunk_count": 0,
         "vector_collection": "",
+        "embedding_error": "",
+        "indexed_at": "",
     }
 
 
@@ -270,21 +303,60 @@ def knowledge_detail(doc_id):
     full_text = _load_full_text(doc)
     preview_text = full_text[:5000]
     is_truncated = len(full_text) > 5000
+    chunks = list_knowledge_chunks_by_document(doc_id)
     return render_template(
         "knowledge_detail.html",
         doc=doc,
         preview_text=preview_text,
         is_truncated=is_truncated,
+        chunks=chunks,
     )
+
+
+@knowledge_bp.route("/knowledge/<int:doc_id>/index", methods=["POST"])
+def knowledge_index(doc_id):
+    result = index_knowledge_document(doc_id)
+    if result.get("ok"):
+        flash(result.get("message") or "已建立向量索引。", "success")
+    else:
+        flash(result.get("message") or "建立向量索引失败。", "danger")
+    return redirect(url_for("knowledge.knowledge_detail", doc_id=doc_id))
+
+
+@knowledge_bp.route("/knowledge/<int:doc_id>/reindex", methods=["POST"])
+def knowledge_reindex(doc_id):
+    result = index_knowledge_document(doc_id)
+    if result.get("ok"):
+        flash(result.get("message") or "已重新建立向量索引。", "success")
+    else:
+        flash(result.get("message") or "重新建立向量索引失败。", "danger")
+    return redirect(url_for("knowledge.knowledge_detail", doc_id=doc_id))
+
+
+@knowledge_bp.route("/knowledge/<int:doc_id>/delete-index", methods=["POST"])
+def knowledge_delete_index(doc_id):
+    result = delete_knowledge_document_index(doc_id)
+    if result.get("warning"):
+        flash(result["warning"], "warning")
+    if result.get("ok"):
+        flash(result.get("message") or "已删除向量索引。", "success")
+    else:
+        flash(result.get("message") or "删除向量索引失败。", "danger")
+    return redirect(url_for("knowledge.knowledge_detail", doc_id=doc_id))
 
 
 @knowledge_bp.route("/knowledge/<int:doc_id>/delete", methods=["POST"])
 def knowledge_delete(doc_id):
-    doc = delete_knowledge_document(doc_id)
+    doc = get_knowledge_document(doc_id)
     if not doc:
         abort(404)
+    result = delete_knowledge_document_index(doc_id)
+    if result.get("warning"):
+        flash(result["warning"], "warning")
     _safe_remove(doc.get("original_file_path"))
     _safe_remove(doc.get("text_file_path"))
+    delete_knowledge_chunks_by_document(doc_id)
+    delete_knowledge_document(doc_id)
     flash("资料已删除。", "success")
     return redirect(url_for("knowledge.knowledge_list"))
 
@@ -318,6 +390,9 @@ def knowledge_reparse(doc_id):
     if status == "parsed":
         base_name = f"{secure_filename(doc.get('title') or 'knowledge')}_{uuid.uuid4().hex[:8]}"
         text_file_path = save_parsed_text(parsed_text, KNOWLEDGE_TEXT_DIR, base_name)
+        cleanup_result = delete_knowledge_document_index(doc_id)
+        if cleanup_result.get("warning"):
+            flash(cleanup_result["warning"], "warning")
         payload.update(
             {
                 "parsed_text": parsed_text[:10000],
@@ -326,6 +401,11 @@ def knowledge_reparse(doc_id):
                 "word_count": count_text_words(parsed_text),
                 "status": "parsed",
                 "error_message": "",
+                "embedding_status": "not_indexed",
+                "embedding_error": "",
+                "indexed_at": "",
+                "chunk_count": 0,
+                "vector_collection": "",
             }
         )
     else:
@@ -342,6 +422,38 @@ def knowledge_reparse(doc_id):
     else:
         flash(f"重新解析失败：{error_message}", "danger")
     return redirect(url_for("knowledge.knowledge_detail", doc_id=doc_id))
+
+
+@knowledge_bp.route("/knowledge/search-semantic")
+def knowledge_semantic_search_page():
+    filters = _semantic_filters_from_request(request)
+    query = str(request.args.get("query") or "").strip()
+    top_k = _optional_int(request.args.get("top_k"), default=5, minimum=1, maximum=20)
+    embedding_probe = test_embedding_connection()
+    results = []
+    search_error = ""
+
+    if query:
+        try:
+            results = search_knowledge_semantic(query, filters=filters, top_k=top_k)
+        except (EmbeddingServiceError, VectorStoreError) as exc:
+            search_error = str(exc)
+
+    return render_template(
+        "knowledge_semantic_search.html",
+        query=query,
+        top_k=top_k,
+        filters=filters,
+        results=results,
+        embedding_probe=embedding_probe,
+        search_error=search_error,
+        doc_type_options=DOC_TYPE_OPTIONS,
+        grade_options=GRADE_OPTIONS,
+        textbook_options=TEXTBOOK_OPTIONS,
+        volume_options=VOLUME_OPTIONS,
+        unit_options=UNIT_OPTIONS,
+        lesson_type_options=LESSON_TYPE_OPTIONS,
+    )
 
 
 @knowledge_bp.route("/knowledge/<int:doc_id>/download")

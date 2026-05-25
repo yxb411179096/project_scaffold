@@ -150,7 +150,7 @@
         <input class="form-control mb-3" name="base_url" value="{{ editing_config.base_url }}" placeholder="http://127.0.0.1:11434">
 
         <label class="form-label">Model Name</label>
-        <input class="form-control mb-3" name="model_name" value="{{ editing_config.model_name }}" placeholder="qwen2.5:7b">
+        <input class="form-control mb-3" name="model_name" value="{{ editing_config.model_name }}" placeholder="qwen3:30b">
 
         <label class="form-label">API Key</label>
         <input class="form-control mb-3" name="api_key" value="" placeholder="{% if editing_config.api_key_masked %}当前：{{ editing_config.api_key_masked }}{% else %}留空表示无 API Key{% endif %}">

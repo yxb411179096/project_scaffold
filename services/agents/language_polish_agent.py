@@ -10,6 +10,7 @@ import re
 
 from services.agents.json_schema_checker import check_schema
 from services.llm_service import call_agent_json
+from services.knowledge_retrieval_service import format_knowledge_context_for_prompt
 
 
 TITLE_MAP = {
@@ -185,7 +186,19 @@ def _normalize_single_polished(payload, fallback):
     return _normalize_polished_slide(payload, fallback)
 
 
-def _polish_prompts(slides, lesson_request):
+def _knowledge_context_block(knowledge_context):
+    if not knowledge_context:
+        return ""
+    return "\n\n" + format_knowledge_context_for_prompt(knowledge_context)
+
+
+def _preserve_mode_note(lesson_request):
+    if str((lesson_request or {}).get("manuscript_generation_strategy") or "").strip() == "preserve_original_pages":
+        return "\n\nPreserve mode note: keep the original page titles and slide order unchanged. Use knowledge only for teacher_notes or useful_expressions, and do not rewrite the page structure."
+    return ""
+
+
+def _polish_prompts(slides, lesson_request, knowledge_context=None):
     system_prompt = """
 You are a senior high school English classroom editor.
 Return JSON only.
@@ -199,6 +212,8 @@ Lesson request:
 
 Slides to polish:
 {json.dumps(slides, ensure_ascii=False, indent=2)}
+
+{_knowledge_context_block(knowledge_context)}{_preserve_mode_note(lesson_request)}
 
 Return one JSON object with a "slides" array.
 Each slide must keep these fields:
@@ -225,7 +240,7 @@ Requirements:
     return system_prompt.strip(), user_prompt.strip()
 
 
-def _single_polish_prompts(slide, lesson_request):
+def _single_polish_prompts(slide, lesson_request, knowledge_context=None):
     system_prompt = """
 You are a senior high school English classroom editor.
 Return JSON only.
@@ -239,6 +254,8 @@ Lesson request:
 
 Slide to polish:
 {json.dumps(slide, ensure_ascii=False, indent=2)}
+
+{_knowledge_context_block(knowledge_context)}{_preserve_mode_note(lesson_request)}
 
 Return one JSON object with a "slide" object.
 Keep these fields:
@@ -264,12 +281,12 @@ Requirements:
     return system_prompt.strip(), user_prompt.strip()
 
 
-def polish_language(slides, lesson_request):
+def polish_language(slides, lesson_request, knowledge_context=None):
     """Polish classroom English with Ollama first and rule-based fallback."""
 
     fallback = _rule_polish_language(slides, lesson_request)
     if isinstance(slides, dict):
-        system_prompt, user_prompt = _single_polish_prompts(slides, lesson_request)
+        system_prompt, user_prompt = _single_polish_prompts(slides, lesson_request, knowledge_context=knowledge_context)
         payload = call_agent_json(
             "language_polish_agent",
             {
@@ -288,7 +305,7 @@ def polish_language(slides, lesson_request):
         slide_chunk = slides[start:start + chunk_size]
         fallback_chunk = fallback[start:start + chunk_size]
         stage = f"language_polish_batch_{start // chunk_size + 1}"
-        system_prompt, user_prompt = _polish_prompts(slide_chunk, lesson_request)
+        system_prompt, user_prompt = _polish_prompts(slide_chunk, lesson_request, knowledge_context=knowledge_context)
         payload = call_agent_json(
             "language_polish_agent",
             {

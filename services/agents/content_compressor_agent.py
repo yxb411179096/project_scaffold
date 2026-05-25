@@ -9,6 +9,7 @@ import json
 import re
 
 from services.llm_service import call_agent_json
+from services.knowledge_retrieval_service import format_knowledge_context_for_prompt
 from services.mock_ai_service import normalize_lesson_type
 
 
@@ -282,7 +283,13 @@ def _normalize_slides(payload, fallback):
     return normalized[0] if single else normalized
 
 
-def _compressor_prompts(slides, lesson_request, fallback):
+def _knowledge_context_block(knowledge_context):
+    if not knowledge_context:
+        return ""
+    return "\n\n" + format_knowledge_context_for_prompt(knowledge_context)
+
+
+def _compressor_prompts(slides, lesson_request, fallback, knowledge_context=None):
     system_prompt = """
 You compress lesson manuscript content into concise PPT slide wording.
 Return JSON only.
@@ -299,6 +306,8 @@ Input slides:
 Fallback compressed slides:
 {json.dumps(fallback, ensure_ascii=False, indent=2)}
 
+{_knowledge_context_block(knowledge_context)}
+
 Return one JSON object with a "slides" array.
 
 Requirements:
@@ -313,11 +322,16 @@ Requirements:
     return system_prompt.strip(), user_prompt.strip()
 
 
-def compress_slide_content(slides, lesson_request):
+def compress_slide_content(slides, lesson_request, knowledge_context=None):
     """Compress manuscript-derived slide content for PPT display."""
 
     fallback = _compress_slides_rule(slides, lesson_request)
-    system_prompt, user_prompt = _compressor_prompts(slides, lesson_request, fallback)
+    system_prompt, user_prompt = _compressor_prompts(
+        slides,
+        lesson_request,
+        fallback,
+        knowledge_context=knowledge_context,
+    )
     payload = call_agent_json(
         "content_compressor_agent",
         {

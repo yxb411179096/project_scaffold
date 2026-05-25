@@ -8,6 +8,7 @@ structure and pacing while preserving the same outline schema and fallback.
 import json
 
 from services.llm_service import call_agent_json
+from services.knowledge_retrieval_service import format_knowledge_context_for_prompt
 from services.mock_ai_service import normalize_lesson_type
 
 
@@ -143,7 +144,13 @@ def _normalize_outline(payload, fallback):
     return normalized
 
 
-def _outline_prompts(lesson_request, teaching_design, fallback):
+def _knowledge_context_block(knowledge_context):
+    if not knowledge_context:
+        return ""
+    return "\n\n" + format_knowledge_context_for_prompt(knowledge_context)
+
+
+def _outline_prompts(lesson_request, teaching_design, fallback, knowledge_context=None):
     system_prompt = """
 You are a senior high school English PPT lesson planner.
 Return JSON only.
@@ -160,6 +167,8 @@ Teaching design:
 
 Required slide structure and order:
 {json.dumps(fallback, ensure_ascii=False, indent=2)}
+
+{_knowledge_context_block(knowledge_context)}
 
 Return one JSON object with a "slides" array.
 Each slide must include:
@@ -178,11 +187,17 @@ Requirements:
     return system_prompt.strip(), user_prompt.strip()
 
 
-def generate_ppt_outline(lesson_request, teaching_design):
+def generate_ppt_outline(lesson_request, teaching_design, knowledge_context=None):
     """Generate a lesson-type-specific slide outline."""
 
     fallback = _build_rule_ppt_outline(lesson_request, teaching_design)
-    system_prompt, user_prompt = _outline_prompts(lesson_request, teaching_design, fallback)
+    knowledge_context = knowledge_context or lesson_request.get("knowledge_context")
+    system_prompt, user_prompt = _outline_prompts(
+        lesson_request,
+        teaching_design,
+        fallback,
+        knowledge_context=knowledge_context,
+    )
     payload = call_agent_json(
         "ppt_outline_agent",
         {

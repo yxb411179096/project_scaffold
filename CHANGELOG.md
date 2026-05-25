@@ -1,5 +1,52 @@
 # CHANGELOG
 
+## 0.15.4
+- 修复编辑页知识库参考资料中的“查看原资料”按钮 endpoint 错误，`knowledge.detail` 已改为真实存在的 `knowledge.knowledge_detail`，避免 `/ppt/task/<id>/edit` 再次触发 500。
+
+## 0.15.3
+- 修复新建课件后跳转编辑页时的 500 错误，`relaxed_level` 现在兼容字符串与旧数字格式，不再强制 `int()` 转换。
+- 编辑页知识库参考资料区域现在直接显示 `relaxed_level_label`，可正确展示“精确匹配 / 已放宽单元 / 已放宽册别 / 仅按课型匹配 / 无筛选语义检索 / 未知”。
+- 补充 `relaxed_level` 兼容回归测试，覆盖 `no_filters`、旧数字值与 `None` 三种情况。
+
+## 0.15.2
+- 修复 ChromaDB `where` 条件构造在单条件或单候选值时误包裹 `$and` / `$or` 的问题，避免出现 `Expected where value for $and or $or to be a list with at least two where expressions`。
+- 优化知识库检索放宽策略，支持从完整过滤逐级降级到无 filters 搜索，并在编辑页展示 `relaxed_level` 与 `used_filters`，便于判断命中是否来自放宽检索。
+- 增强 `qwen3:30b` 的空响应兜底逻辑：首次空响应自动 retry，一并提高本地推理的默认 timeout / `num_predict` / 低温参数，减少 Agent 回退到 rule 的概率。
+- 更新默认 Agent 参数建议，提升 `lesson_design_agent`、`ppt_outline_agent`、`slide_content_agent`、`language_polish_agent` 等在本地 Ollama 下的稳定性。
+
+## 0.15.1
+- 优化知识库检索的放宽逻辑，`Unit 4` / `unit4` / `Unit4` 与 `Reading` / `reading` 等值会尽量标准化并兼容匹配。
+- 知识库语义检索现在按多级策略逐步放宽筛选条件，支持从完整过滤回退到仅按语义查询，编辑页可查看 `used_filters` 和 `relaxed_level`。
+- 优化 RAG 检索 query 构造，优先生成更自然的检索语句，提升命中率。
+- 增加 Ollama 空响应 retry 机制，qwen3:30b 首次返回空内容时会自动重试一次，并增强 JSON 提取容错。
+- 默认将 qwen3 相关 Agent 的超时建议提升到更适合本地推理的范围，减少空响应和超时 fallback。
+
+## 0.15.0
+- 新增知识库增强生成开关，支持在新建课件和文案转 PPT 时选择是否启用 RAG。
+- 新增 `services/knowledge_retrieval_service.py`，用于构造知识库查询、metadata 筛选、语义检索与 prompt 格式化。
+- 新建课件和文案转 PPT 现在可以把知识库检索结果作为参考资料注入 Agent，但不会破坏原有普通生成路径。
+- 支持在 `lesson_tasks` 中保存 `use_knowledge_base`、`knowledge_query`、`knowledge_top_k`、`knowledge_context_json`，便于编辑页回看与复现。
+- Agent prompt 已支持 `knowledge_context`，知识库检索失败时自动 fallback 到普通生成，不会影响课件生成结果。
+- 编辑页新增“知识库参考资料”区域，可查看检索状态、命中资料、相似度与原资料跳转。
+
+## 0.14.1
+- 修复语义搜索结果显示“未命名资料”的问题，搜索结果现在会根据 `document_id` 反查 `KnowledgeDocument` 补齐标题和元信息。
+- ChromaDB 向量 metadata 现在完整写入 `document_id`、`title`、`doc_type`、`grade`、`textbook`、`volume`、`unit`、`lesson_type`、`tags`、`chunk_index`，旧索引也能在搜索页回填标题。
+- 优化知识库列表页表格布局，合并资料信息、解析信息与索引状态列，避免文字在窄列中被挤成竖排。
+- 优化语义搜索结果卡片展示，资料标题、元信息、Distance / Score 与原资料跳转更清晰。
+
+## 0.14.0
+- 新增知识库文本切块、KnowledgeChunk 模型、Ollama embedding 服务与 ChromaDB 向量存储服务，知识库从资料管理升级为可语义检索的知识库。
+- 新增知识库索引、重新索引与删除索引流程，向量数据持久化到本地 `CHROMA_PERSIST_DIR`，SQLite 同步保存 chunk 元信息便于调试与查看。
+- 新增 `/knowledge/search-semantic` 语义检索页面，支持 query、Top K 和 metadata 筛选，展示相似 chunk、来源资料与距离/得分。
+- 知识资料删除与重新解析流程已联动清理向量索引和 chunk 元信息，但课件生成流程暂未接入知识库。
+
+## 0.13.1
+- 完成本机 Mac Pro 环境适配检查：确认项目可在本地 Ollama `http://127.0.0.1:11434` 下运行，并将默认模型对齐为 `qwen3:30b`。
+- `config.py` 与 `services/llm_service.py` 的 Ollama 默认模型回退值已从 `qwen2.5:7b` 调整为 `qwen3:30b`，避免新环境在没有 `.env` 时误落到旧默认。
+- `models/database.py` 新增轻量启动迁移：当数据库里没有默认模型、且仅存在一个可用 Ollama 配置时，会自动将其提升为默认模型，确保本地运行优先使用已验证的 `qwen3:30b`。
+- 模型配置页占位提示同步更新为 `qwen3:30b`，便于后续新增或编辑模型时保持一致。
+
 ## 0.13.0
 - 新增教学资料知识库模块，提供资料上传、文本录入、解析、检索、详情查看、重解析、下载与删除能力，首版只做资料管理，不接入向量库与 RAG。
 - 新增 `KnowledgeDocument` 数据结构（`knowledge_documents` 表）及 SQLite 兼容迁移，包含标题、类型、学段教材元信息、来源、文件路径、解析文本、摘要、字数、状态、错误信息等字段。

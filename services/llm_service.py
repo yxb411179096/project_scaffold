@@ -95,7 +95,7 @@ def _env_model_config():
         "name": f"ENV {provider}",
         "provider": provider,
         "base_url": str(OLLAMA_BASE_URL or "http://127.0.0.1:11434").rstrip("/"),
-        "model_name": str(OLLAMA_MODEL or "qwen2.5:7b").strip() or "qwen2.5:7b",
+        "model_name": str(OLLAMA_MODEL or "qwen3:30b").strip() or "qwen3:30b",
         "api_key": "",
         "timeout": max(10, int(OLLAMA_TIMEOUT or 120)),
         "enabled": True,
@@ -278,6 +278,14 @@ def _strip_code_fence(text):
     return cleaned.strip()
 
 
+def _retry_instruction_text():
+    return "Return valid JSON only. Do not include explanation. Do not return empty content."
+
+
+def _qwen3_suffix():
+    return "Do not output thinking process. Return only the final JSON."
+
+
 def _parse_json_payload(text):
     cleaned = _strip_code_fence(text)
     if not cleaned:
@@ -298,9 +306,56 @@ def _parse_json_payload(text):
     raise LLMServiceError("Model returned invalid JSON.")
 
 
+def _is_retryable_ollama_error(exc):
+    message = str(exc or "").lower()
+    return "empty response" in message or "invalid json" in message
+
+
+def _call_ollama_payload_with_retry(model_config, system_prompt, user_prompt, timeout, temperature, max_tokens, json_required):
+    try:
+        return _call_ollama_payload(
+            model_config,
+            system_prompt,
+            user_prompt,
+            timeout,
+            temperature,
+            max_tokens,
+            json_required,
+        )
+    except LLMServiceError as exc:
+        if not _is_retryable_ollama_error(exc):
+            raise
+        logger.warning(
+            "Retrying Ollama request after empty/invalid response for model=%s",
+            model_config.get("model_name"),
+        )
+
+    retry_timeout = max(240, int(timeout or 120))
+    retry_temperature = min(max(float(temperature or 0.3), 0.2), 0.4)
+    retry_max_tokens = max(int(max_tokens or 0), 4096)
+    retry_system_prompt = f"{str(system_prompt or '').strip()}\n\n{_qwen3_suffix()}\n\n{_retry_instruction_text()}".strip()
+    retry_user_prompt = f"{str(user_prompt or '').strip()}\n\n{_retry_instruction_text()}".strip()
+    return _call_ollama_payload(
+        model_config,
+        retry_system_prompt,
+        retry_user_prompt,
+        retry_timeout,
+        retry_temperature,
+        retry_max_tokens,
+        json_required,
+    )
+
+
 def _call_ollama_payload(model_config, system_prompt, user_prompt, timeout, temperature, max_tokens, json_required):
     base_url = str(model_config.get("base_url") or "").rstrip("/")
     endpoint = f"{base_url}/api/generate"
+    model_name = str(model_config.get("model_name") or "").strip()
+    is_qwen3 = "qwen3" in model_name.lower()
+    if is_qwen3:
+        timeout = max(240, int(timeout or 0))
+        temperature = min(max(float(temperature or 0.3), 0.2), 0.4)
+        max_tokens = max(int(max_tokens or 0), 4096)
+        system_prompt = f"{str(system_prompt or '').strip()}\n\n{_qwen3_suffix()}".strip()
     payload = {
         "model": model_config.get("model_name"),
         "system": str(system_prompt or "").strip(),
@@ -345,7 +400,7 @@ def _call_model_json_with_config(
 
     try:
         if provider == "ollama":
-            result = _call_ollama_payload(
+            result = _call_ollama_payload_with_retry(
                 model_config,
                 system_prompt,
                 user_prompt,
@@ -455,6 +510,31 @@ def get_model_for_agent(agent_name):
     }
 
 
+def _is_qwen3_model(model_config):
+    model_name = str((model_config or {}).get("model_name") or "").strip().lower()
+    return "qwen3" in model_name
+
+
+def _apply_qwen3_runtime_profile(agent_name, model_config, timeout, temperature, max_tokens):
+    if not _is_qwen3_model(model_config):
+        return timeout, temperature, max_tokens
+
+    timeout_floor = 240
+    token_floor = 4096
+    if agent_name == "slide_content_agent":
+        timeout_floor = 300
+        token_floor = 6000
+    elif agent_name in {"lesson_structure_extractor_agent", "slide_splitter_agent"}:
+        timeout_floor = 300
+        token_floor = 6000
+    elif agent_name == "content_compressor_agent":
+        token_floor = 5000
+    timeout = max(int(timeout or 0), timeout_floor)
+    temperature = min(max(float(temperature or 0.3), 0.2), 0.4)
+    max_tokens = max(int(max_tokens or 0), token_floor)
+    return timeout, temperature, max_tokens
+
+
 def _run_rule_fallback(agent_name, task_id, fallback_fn, status, detail):
     if fallback_fn is None:
         raise LLMServiceError(detail)
@@ -516,6 +596,13 @@ def call_agent_json(agent_name, prompt, fallback_fn=None):
     primary_model = strategy.get("primary_model_config")
     fallback_model = strategy.get("fallback_model_config")
     fallback_to_rule = bool(strategy.get("fallback_to_rule"))
+    timeout, temperature, max_tokens = _apply_qwen3_runtime_profile(
+        agent_name,
+        primary_model,
+        timeout,
+        temperature,
+        max_tokens,
+    )
 
     if not _can_call_model(primary_model):
         detail = stage_note or "No usable primary model is available."
@@ -528,6 +615,13 @@ def call_agent_json(agent_name, prompt, fallback_fn=None):
                     or fallback_model.get("timeout")
                     or 120
                 ),
+                )
+            fallback_timeout, fallback_temperature, fallback_max_tokens = _apply_qwen3_runtime_profile(
+                agent_name,
+                fallback_model,
+                fallback_timeout,
+                temperature,
+                max_tokens,
             )
             return _call_model_json_with_config(
                 agent_name,
@@ -536,8 +630,8 @@ def call_agent_json(agent_name, prompt, fallback_fn=None):
                 system_prompt,
                 user_prompt,
                 fallback_timeout,
-                temperature,
-                max_tokens,
+                fallback_temperature,
+                fallback_max_tokens,
                 json_required,
                 success_status="fallback_model",
                 detail=detail,
@@ -572,6 +666,13 @@ def call_agent_json(agent_name, prompt, fallback_fn=None):
                         or 120
                     ),
                 )
+                fallback_timeout, fallback_temperature, fallback_max_tokens = _apply_qwen3_runtime_profile(
+                    agent_name,
+                    fallback_model,
+                    fallback_timeout,
+                    temperature,
+                    max_tokens,
+                )
                 return _call_model_json_with_config(
                     agent_name,
                     fallback_model,
@@ -579,8 +680,8 @@ def call_agent_json(agent_name, prompt, fallback_fn=None):
                     system_prompt,
                     user_prompt,
                     fallback_timeout,
-                    temperature,
-                    max_tokens,
+                    fallback_temperature,
+                    fallback_max_tokens,
                     json_required,
                     success_status="fallback_model",
                     detail=stage_note or f"Fallback model after primary error: {primary_error}",
@@ -622,7 +723,7 @@ def ollama_settings():
     config = get_active_model_config()
     return {
         "base_url": str(config.get("base_url") or "http://127.0.0.1:11434").rstrip("/"),
-        "model": str(config.get("model_name") or "qwen2.5:7b").strip() or "qwen2.5:7b",
+        "model": str(config.get("model_name") or "qwen3:30b").strip() or "qwen3:30b",
         "timeout": max(10, int(config.get("timeout") or 120)),
     }
 
@@ -640,8 +741,8 @@ def call_ollama_json(stage, system_prompt, user_prompt, temperature=0.3):
         system_prompt,
         user_prompt,
         max(10, int(config.get("timeout") or 120)),
-        temperature,
-        2048,
+        min(float(temperature or 0.3), 0.3),
+        3072,
         True,
         success_status="success",
         detail=f"default runtime model {config.get('name')}",

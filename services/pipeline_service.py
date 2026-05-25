@@ -8,6 +8,8 @@ Later iterations can swap each stage to a real model-backed agent without
 changing the rest of the Flask app.
 """
 
+import json
+
 from services.agents import (
     check_schema,
     generate_lesson_design,
@@ -23,11 +25,47 @@ from services.agents import (
     polish_language,
     review_activities,
 )
+from services.knowledge_retrieval_service import load_knowledge_context, retrieve_knowledge_context
 from services.llm_service import record_fallback, record_rule_only_agent
 
 
 def _has_non_empty_slides(ppt_json):
     return isinstance(ppt_json, list) and len(ppt_json) > 0
+
+
+def _resolve_knowledge_context(lesson_request, manuscript_text=None):
+    if not lesson_request.get("use_knowledge_base"):
+        return None
+
+    existing = load_knowledge_context(
+        lesson_request.get("knowledge_context_json") or lesson_request.get("knowledge_context")
+    )
+    if existing:
+        lesson_request["knowledge_context_json"] = json.dumps(existing, ensure_ascii=False)
+        lesson_request["knowledge_query"] = existing.get("query") or lesson_request.get("knowledge_query") or ""
+        lesson_request["knowledge_top_k"] = existing.get("top_k") or lesson_request.get("knowledge_top_k") or 5
+        if not existing.get("failed") and int(existing.get("result_count") or 0) > 0:
+            lesson_request["knowledge_context"] = existing
+            return existing
+        record_fallback("knowledge_retrieval", existing.get("error") or "未找到已索引资料。")
+        lesson_request.pop("knowledge_context", None)
+        return existing
+
+    context = retrieve_knowledge_context(
+        lesson_request,
+        query=lesson_request.get("knowledge_query"),
+        top_k=lesson_request.get("knowledge_top_k") or 5,
+        manuscript_text=manuscript_text,
+    )
+    lesson_request["knowledge_context_json"] = json.dumps(context, ensure_ascii=False)
+    lesson_request["knowledge_query"] = context.get("query") or lesson_request.get("knowledge_query") or ""
+    lesson_request["knowledge_top_k"] = context.get("top_k") or lesson_request.get("knowledge_top_k") or 5
+    if not context.get("failed") and int(context.get("result_count") or 0) > 0:
+        lesson_request["knowledge_context"] = context
+    else:
+        record_fallback("knowledge_retrieval", context.get("error") or "未找到已索引资料。")
+        lesson_request.pop("knowledge_context", None)
+    return context
 
 
 def build_rule_based_slides(lesson_request, teaching_design=None, ppt_outline=None):
@@ -70,10 +108,11 @@ def run_generation_pipeline(raw_task):
         lesson_request.get("task_id"),
         "Normalized the lesson request with rule-based parsing.",
     )
-    teaching_design = generate_lesson_design(lesson_request)
-    ppt_outline = generate_ppt_outline(lesson_request, teaching_design)
-    ppt_json = generate_slide_content(lesson_request, teaching_design, ppt_outline)
-    ppt_json = polish_language(ppt_json, lesson_request)
+    knowledge_context = _resolve_knowledge_context(lesson_request)
+    teaching_design = generate_lesson_design(lesson_request, knowledge_context=knowledge_context)
+    ppt_outline = generate_ppt_outline(lesson_request, teaching_design, knowledge_context=knowledge_context)
+    ppt_json = generate_slide_content(lesson_request, teaching_design, ppt_outline, knowledge_context=knowledge_context)
+    ppt_json = polish_language(ppt_json, lesson_request, knowledge_context=knowledge_context)
     ppt_json = review_activities(ppt_json, lesson_request)
     record_rule_only_agent(
         "activity_review_agent",
@@ -104,6 +143,7 @@ def run_generation_pipeline(raw_task):
         "teaching_design": teaching_design,
         "ppt_outline": ppt_outline,
         "ppt_json": ppt_json,
+        "knowledge_context": knowledge_context,
     }
 
 
@@ -127,7 +167,8 @@ def regenerate_slide_with_pipeline(raw_task, current_slide):
         lesson_request.get("task_id"),
         "Normalized the lesson request for single-slide regeneration.",
     )
-    teaching_design = generate_lesson_design(lesson_request)
+    knowledge_context = _resolve_knowledge_context(lesson_request)
+    teaching_design = generate_lesson_design(lesson_request, knowledge_context=knowledge_context)
     slide_outline = {
         "slide_index": current_slide.get("slide_index"),
         "slide_type": current_slide.get("slide_type"),
@@ -140,8 +181,9 @@ def regenerate_slide_with_pipeline(raw_task, current_slide):
         teaching_design,
         slide_outline,
         regenerate=True,
+        knowledge_context=knowledge_context,
     )
-    regenerated_slide = polish_language(regenerated_slide, lesson_request)
+    regenerated_slide = polish_language(regenerated_slide, lesson_request, knowledge_context=knowledge_context)
     regenerated_slide["layout_plan"] = plan_layout_for_slide(regenerated_slide, lesson_request)
     record_rule_only_agent(
         "layout_planner_agent",

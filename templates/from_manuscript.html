@@ -96,6 +96,21 @@
             <label class="form-label">补充要求</label>
             <textarea name="extra_requirements" class="form-control" rows="4" placeholder="例如：保留阅读课层次，课堂任务更明确，减少 PPT 正文密度。">{{ form_data.extra_requirements }}</textarea>
           </div>
+          <div class="col-12">
+            <div class="form-check mt-1">
+              <input class="form-check-input" type="checkbox" value="on" id="use_knowledge_base" name="use_knowledge_base" {% if form_data.use_knowledge_base %}checked{% endif %}>
+              <label class="form-check-label" for="use_knowledge_base">使用知识库增强生成</label>
+            </div>
+            <div class="form-text">启用后，系统会结合用户文案与知识库资料生成课件参考内容。</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">knowledge_top_k</label>
+            <input name="knowledge_top_k" type="number" class="form-control" min="1" max="10" value="{{ form_data.knowledge_top_k }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">knowledge_query</label>
+            <textarea name="knowledge_query" class="form-control" rows="3" placeholder="可选。留空时系统会根据课题、单元、课型自动生成检索问题。">{{ form_data.knowledge_query }}</textarea>
+          </div>
         </div>
         <div class="d-flex flex-wrap gap-2 mt-4">
           <button class="btn btn-primary">生成课件</button>

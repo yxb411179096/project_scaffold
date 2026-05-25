@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -52,9 +53,9 @@ AGENT_BINDING_DEFAULTS = {
         "mode": "model_first",
         "primary_model_config_id": None,
         "fallback_model_config_id": None,
-        "timeout_override": None,
+        "timeout_override": 240,
         "temperature": 0.35,
-        "max_tokens": 1400,
+        "max_tokens": 4096,
         "json_required": True,
         "fallback_to_rule": True,
         "enabled": True,
@@ -63,9 +64,9 @@ AGENT_BINDING_DEFAULTS = {
         "mode": "model_first",
         "primary_model_config_id": None,
         "fallback_model_config_id": None,
-        "timeout_override": None,
+        "timeout_override": 240,
         "temperature": 0.3,
-        "max_tokens": 1800,
+        "max_tokens": 4096,
         "json_required": True,
         "fallback_to_rule": True,
         "enabled": True,
@@ -74,9 +75,9 @@ AGENT_BINDING_DEFAULTS = {
         "mode": "model_first",
         "primary_model_config_id": None,
         "fallback_model_config_id": None,
-        "timeout_override": None,
+        "timeout_override": 300,
         "temperature": 0.35,
-        "max_tokens": 2200,
+        "max_tokens": 6000,
         "json_required": True,
         "fallback_to_rule": True,
         "enabled": True,
@@ -85,9 +86,9 @@ AGENT_BINDING_DEFAULTS = {
         "mode": "model_first",
         "primary_model_config_id": None,
         "fallback_model_config_id": None,
-        "timeout_override": None,
+        "timeout_override": 240,
         "temperature": 0.2,
-        "max_tokens": 1600,
+        "max_tokens": 4096,
         "json_required": True,
         "fallback_to_rule": True,
         "enabled": True,
@@ -129,9 +130,9 @@ AGENT_BINDING_DEFAULTS = {
         "mode": "model_first",
         "primary_model_config_id": None,
         "fallback_model_config_id": None,
-        "timeout_override": None,
+        "timeout_override": 240,
         "temperature": 0.25,
-        "max_tokens": 1200,
+        "max_tokens": 4096,
         "json_required": True,
         "fallback_to_rule": True,
         "enabled": True,
@@ -151,9 +152,9 @@ AGENT_BINDING_DEFAULTS = {
         "mode": "model_first",
         "primary_model_config_id": None,
         "fallback_model_config_id": None,
-        "timeout_override": None,
+        "timeout_override": 300,
         "temperature": 0.25,
-        "max_tokens": 1800,
+        "max_tokens": 6000,
         "json_required": True,
         "fallback_to_rule": True,
         "enabled": True,
@@ -173,9 +174,9 @@ AGENT_BINDING_DEFAULTS = {
         "mode": "model_first",
         "primary_model_config_id": None,
         "fallback_model_config_id": None,
-        "timeout_override": None,
+        "timeout_override": 300,
         "temperature": 0.25,
-        "max_tokens": 2200,
+        "max_tokens": 6000,
         "json_required": True,
         "fallback_to_rule": True,
         "enabled": True,
@@ -184,9 +185,9 @@ AGENT_BINDING_DEFAULTS = {
         "mode": "model_first",
         "primary_model_config_id": None,
         "fallback_model_config_id": None,
-        "timeout_override": None,
+        "timeout_override": 240,
         "temperature": 0.2,
-        "max_tokens": 1600,
+        "max_tokens": 5000,
         "json_required": True,
         "fallback_to_rule": True,
         "enabled": True,
@@ -250,6 +251,73 @@ def _apply_agent_binding_migrations(conn):
         """,
         (now(),),
     )
+    conn.execute(
+        """
+        UPDATE agent_model_bindings
+        SET timeout_override=CASE agent_name
+            WHEN 'lesson_design_agent' THEN MAX(COALESCE(timeout_override, 0), 240)
+            WHEN 'ppt_outline_agent' THEN MAX(COALESCE(timeout_override, 0), 240)
+            WHEN 'slide_content_agent' THEN MAX(COALESCE(timeout_override, 0), 300)
+            WHEN 'language_polish_agent' THEN MAX(COALESCE(timeout_override, 0), 240)
+            WHEN 'manuscript_analyzer_agent' THEN MAX(COALESCE(timeout_override, 0), 240)
+            WHEN 'lesson_structure_extractor_agent' THEN MAX(COALESCE(timeout_override, 0), 300)
+            WHEN 'slide_splitter_agent' THEN MAX(COALESCE(timeout_override, 0), 300)
+            WHEN 'content_compressor_agent' THEN MAX(COALESCE(timeout_override, 0), 240)
+            ELSE timeout_override
+        END,
+            max_tokens=CASE agent_name
+            WHEN 'lesson_design_agent' THEN MAX(COALESCE(max_tokens, 0), 4096)
+            WHEN 'ppt_outline_agent' THEN MAX(COALESCE(max_tokens, 0), 4096)
+            WHEN 'slide_content_agent' THEN MAX(COALESCE(max_tokens, 0), 6000)
+            WHEN 'language_polish_agent' THEN MAX(COALESCE(max_tokens, 0), 4096)
+            WHEN 'manuscript_analyzer_agent' THEN MAX(COALESCE(max_tokens, 0), 4096)
+            WHEN 'lesson_structure_extractor_agent' THEN MAX(COALESCE(max_tokens, 0), 6000)
+            WHEN 'slide_splitter_agent' THEN MAX(COALESCE(max_tokens, 0), 6000)
+            WHEN 'content_compressor_agent' THEN MAX(COALESCE(max_tokens, 0), 5000)
+            ELSE max_tokens
+        END,
+            updated_at=?
+        WHERE agent_name IN (
+            'lesson_design_agent',
+            'ppt_outline_agent',
+            'slide_content_agent',
+            'language_polish_agent',
+            'manuscript_analyzer_agent',
+            'lesson_structure_extractor_agent',
+            'slide_splitter_agent',
+            'content_compressor_agent'
+        )
+        """,
+        (now(),),
+    )
+
+
+def _ensure_default_ai_model_config(conn):
+    """Promote a single usable Ollama config to default for fresh local setups."""
+
+    default_count = conn.execute(
+        "SELECT COUNT(*) FROM ai_model_configs WHERE enabled=1 AND is_default=1"
+    ).fetchone()[0]
+    if default_count:
+        return
+
+    usable_rows = conn.execute(
+        """
+        SELECT id
+        FROM ai_model_configs
+        WHERE enabled=1
+          AND provider='ollama'
+          AND COALESCE(model_name, '') <> ''
+        ORDER BY id ASC
+        """
+    ).fetchall()
+    if len(usable_rows) != 1:
+        return
+
+    conn.execute(
+        "UPDATE ai_model_configs SET is_default=CASE WHEN id=? THEN 1 ELSE 0 END, updated_at=?",
+        (usable_rows[0][0], now()),
+    )
 
 
 def init_db():
@@ -272,6 +340,10 @@ def init_db():
                 student_level TEXT,
                 style TEXT,
                 extra_requirements TEXT,
+                use_knowledge_base INTEGER DEFAULT 0,
+                knowledge_query TEXT,
+                knowledge_top_k INTEGER DEFAULT 5,
+                knowledge_context_json TEXT,
                 status TEXT DEFAULT 'draft',
                 created_at TEXT,
                 updated_at TEXT
@@ -380,8 +452,27 @@ def init_db():
                 embedding_status TEXT DEFAULT 'not_indexed',
                 chunk_count INTEGER DEFAULT 0,
                 vector_collection TEXT DEFAULT '',
+                embedding_error TEXT DEFAULT '',
+                indexed_at TEXT,
                 created_at TEXT,
                 updated_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                document_id INTEGER NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                chunk_text TEXT NOT NULL,
+                chunk_summary TEXT,
+                char_count INTEGER DEFAULT 0,
+                token_estimate INTEGER DEFAULT 0,
+                chroma_id TEXT NOT NULL UNIQUE,
+                metadata_json TEXT,
+                created_at TEXT,
+                FOREIGN KEY(document_id) REFERENCES knowledge_documents(id)
             )
             """
         )
@@ -396,6 +487,10 @@ def init_db():
         ensure_column(conn, "lesson_tasks", "manuscript_summary", "TEXT")
         ensure_column(conn, "lesson_tasks", "manuscript_analysis_json", "TEXT")
         ensure_column(conn, "lesson_tasks", "source_word_count", "INTEGER")
+        ensure_column(conn, "lesson_tasks", "use_knowledge_base", "INTEGER DEFAULT 0")
+        ensure_column(conn, "lesson_tasks", "knowledge_query", "TEXT")
+        ensure_column(conn, "lesson_tasks", "knowledge_top_k", "INTEGER DEFAULT 5")
+        ensure_column(conn, "lesson_tasks", "knowledge_context_json", "TEXT")
         ensure_column(conn, "ai_model_configs", "base_url", "TEXT")
         ensure_column(conn, "ai_model_configs", "model_name", "TEXT")
         ensure_column(conn, "ai_model_configs", "api_key", "TEXT")
@@ -444,6 +539,17 @@ def init_db():
         ensure_column(conn, "knowledge_documents", "embedding_status", "TEXT DEFAULT 'not_indexed'")
         ensure_column(conn, "knowledge_documents", "chunk_count", "INTEGER DEFAULT 0")
         ensure_column(conn, "knowledge_documents", "vector_collection", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "embedding_error", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "indexed_at", "TEXT")
+        ensure_column(conn, "knowledge_chunks", "document_id", "INTEGER")
+        ensure_column(conn, "knowledge_chunks", "chunk_index", "INTEGER")
+        ensure_column(conn, "knowledge_chunks", "chunk_text", "TEXT")
+        ensure_column(conn, "knowledge_chunks", "chunk_summary", "TEXT")
+        ensure_column(conn, "knowledge_chunks", "char_count", "INTEGER DEFAULT 0")
+        ensure_column(conn, "knowledge_chunks", "token_estimate", "INTEGER DEFAULT 0")
+        ensure_column(conn, "knowledge_chunks", "chroma_id", "TEXT")
+        ensure_column(conn, "knowledge_chunks", "metadata_json", "TEXT")
+        ensure_column(conn, "knowledge_chunks", "created_at", "TEXT")
 
         conn.execute(
             """
@@ -487,9 +593,22 @@ def init_db():
             ON knowledge_documents(doc_type)
             """
         )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_document_id
+            ON knowledge_chunks(document_id, chunk_index)
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_chunks_chroma_id
+            ON knowledge_chunks(chroma_id)
+            """
+        )
 
         _seed_agent_bindings(conn)
         _apply_agent_binding_migrations(conn)
+        _ensure_default_ai_model_config(conn)
         conn.commit()
 
 
@@ -614,8 +733,26 @@ def _normalize_knowledge_document_row(row):
     data["embedding_status"] = str(data.get("embedding_status") or "not_indexed").strip() or "not_indexed"
     data["chunk_count"] = _normalize_int(data.get("chunk_count"), default=0, minimum=0)
     data["vector_collection"] = str(data.get("vector_collection") or "").strip()
+    data["embedding_error"] = str(data.get("embedding_error") or "").strip()
+    data["indexed_at"] = str(data.get("indexed_at") or "").strip()
     data["created_at"] = str(data.get("created_at") or "").strip()
     data["updated_at"] = str(data.get("updated_at") or "").strip()
+    return data
+
+
+def _normalize_knowledge_chunk_row(row):
+    if row is None:
+        return None
+    data = dict(row)
+    data["document_id"] = _normalize_int(data.get("document_id"))
+    data["chunk_index"] = _normalize_int(data.get("chunk_index"), default=0, minimum=0)
+    data["chunk_text"] = str(data.get("chunk_text") or "")
+    data["chunk_summary"] = str(data.get("chunk_summary") or "").strip()
+    data["char_count"] = _normalize_int(data.get("char_count"), default=0, minimum=0)
+    data["token_estimate"] = _normalize_int(data.get("token_estimate"), default=0, minimum=0)
+    data["chroma_id"] = str(data.get("chroma_id") or "").strip()
+    data["metadata_json"] = str(data.get("metadata_json") or "")
+    data["created_at"] = str(data.get("created_at") or "").strip()
     return data
 
 
@@ -834,6 +971,60 @@ def create_llm_call_log(task_id, agent_name, provider, model_name, status, durat
     return _normalize_llm_call_log_row(row)
 
 
+def get_lesson_task(task_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM lesson_tasks WHERE id=?", (task_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_lesson_task(task_id, payload):
+    existing = get_lesson_task(task_id) or {}
+    merged = dict(existing)
+    merged.update({key: value for key, value in (payload or {}).items() if value is not None})
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE lesson_tasks
+            SET course_title=?,
+                grade=?,
+                textbook=?,
+                unit=?,
+                lesson_type=?,
+                duration=?,
+                student_level=?,
+                style=?,
+                extra_requirements=?,
+                use_knowledge_base=?,
+                knowledge_query=?,
+                knowledge_top_k=?,
+                knowledge_context_json=?,
+                status=?,
+                updated_at=?
+            WHERE id=?
+            """,
+            (
+                merged.get("course_title"),
+                merged.get("grade"),
+                merged.get("textbook"),
+                merged.get("unit"),
+                merged.get("lesson_type"),
+                _normalize_int(merged.get("duration"), default=45, minimum=20, maximum=120),
+                merged.get("student_level"),
+                merged.get("style"),
+                merged.get("extra_requirements"),
+                1 if str(merged.get("use_knowledge_base") or "").strip() in {"1", "true", "True", "on", "yes"} else 0,
+                merged.get("knowledge_query"),
+                _normalize_int(merged.get("knowledge_top_k"), default=5, minimum=1, maximum=10),
+                merged.get("knowledge_context_json"),
+                merged.get("status") or existing.get("status") or "draft",
+                now(),
+                task_id,
+            ),
+        )
+        row = conn.execute("SELECT * FROM lesson_tasks WHERE id=?", (task_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def list_llm_call_logs(task_id, limit=40):
     with get_db() as conn:
         rows = conn.execute(
@@ -854,8 +1045,8 @@ def create_knowledge_document(payload):
         cur = conn.execute(
             """
             INSERT INTO knowledge_documents
-            (title, doc_type, grade, textbook, volume, unit, lesson_type, source_type, file_name, original_file_path, text_file_path, parsed_text, summary, word_count, tags, status, error_message, embedding_status, chunk_count, vector_collection, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (title, doc_type, grade, textbook, volume, unit, lesson_type, source_type, file_name, original_file_path, text_file_path, parsed_text, summary, word_count, tags, status, error_message, embedding_status, chunk_count, vector_collection, embedding_error, indexed_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload.get("title"),
@@ -878,6 +1069,8 @@ def create_knowledge_document(payload):
                 payload.get("embedding_status") or "not_indexed",
                 payload.get("chunk_count") or 0,
                 payload.get("vector_collection") or "",
+                payload.get("embedding_error") or "",
+                payload.get("indexed_at"),
                 now(),
                 now(),
             ),
@@ -892,7 +1085,7 @@ def update_knowledge_document(doc_id, payload):
         conn.execute(
             """
             UPDATE knowledge_documents
-            SET title=?, doc_type=?, grade=?, textbook=?, volume=?, unit=?, lesson_type=?, source_type=?, file_name=?, original_file_path=?, text_file_path=?, parsed_text=?, summary=?, word_count=?, tags=?, status=?, error_message=?, embedding_status=?, chunk_count=?, vector_collection=?, updated_at=?
+            SET title=?, doc_type=?, grade=?, textbook=?, volume=?, unit=?, lesson_type=?, source_type=?, file_name=?, original_file_path=?, text_file_path=?, parsed_text=?, summary=?, word_count=?, tags=?, status=?, error_message=?, embedding_status=?, chunk_count=?, vector_collection=?, embedding_error=?, indexed_at=?, updated_at=?
             WHERE id=?
             """,
             (
@@ -916,6 +1109,8 @@ def update_knowledge_document(doc_id, payload):
                 payload.get("embedding_status") or "not_indexed",
                 payload.get("chunk_count") or 0,
                 payload.get("vector_collection") or "",
+                payload.get("embedding_error") or "",
+                payload.get("indexed_at"),
                 now(),
                 doc_id,
             ),
@@ -930,11 +1125,77 @@ def get_knowledge_document(doc_id):
     return _normalize_knowledge_document_row(row)
 
 
+def get_knowledge_documents_by_ids(doc_ids):
+    normalized_ids = []
+    for doc_id in doc_ids or []:
+        try:
+            normalized_ids.append(int(doc_id))
+        except (TypeError, ValueError):
+            continue
+    if not normalized_ids:
+        return {}
+
+    placeholders = ",".join("?" for _ in normalized_ids)
+    with get_db() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM knowledge_documents WHERE id IN ({placeholders})",
+            tuple(normalized_ids),
+        ).fetchall()
+    documents = [_normalize_knowledge_document_row(row) for row in rows]
+    return {doc["id"]: doc for doc in documents if doc}
+
+
 def delete_knowledge_document(doc_id):
     with get_db() as conn:
         row = conn.execute("SELECT * FROM knowledge_documents WHERE id=?", (doc_id,)).fetchone()
         conn.execute("DELETE FROM knowledge_documents WHERE id=?", (doc_id,))
     return _normalize_knowledge_document_row(row)
+
+
+def replace_knowledge_chunks(document_id, chunks):
+    with get_db() as conn:
+        conn.execute("DELETE FROM knowledge_chunks WHERE document_id=?", (document_id,))
+        for chunk in chunks or []:
+            metadata_json = chunk.get("metadata_json")
+            if isinstance(metadata_json, dict):
+                metadata_json = json.dumps(metadata_json, ensure_ascii=False)
+            conn.execute(
+                """
+                INSERT INTO knowledge_chunks
+                (document_id, chunk_index, chunk_text, chunk_summary, char_count, token_estimate, chroma_id, metadata_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    document_id,
+                    _normalize_int(chunk.get("chunk_index"), default=0, minimum=0),
+                    str(chunk.get("chunk_text") or ""),
+                    str(chunk.get("chunk_summary") or ""),
+                    _normalize_int(chunk.get("char_count"), default=0, minimum=0),
+                    _normalize_int(chunk.get("token_estimate"), default=0, minimum=0),
+                    str(chunk.get("chroma_id") or "").strip(),
+                    metadata_json if metadata_json is not None else "",
+                    chunk.get("created_at") or now(),
+                ),
+            )
+
+
+def delete_knowledge_chunks_by_document(document_id):
+    with get_db() as conn:
+        conn.execute("DELETE FROM knowledge_chunks WHERE document_id=?", (document_id,))
+
+
+def list_knowledge_chunks_by_document(document_id):
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM knowledge_chunks
+            WHERE document_id=?
+            ORDER BY chunk_index ASC, id ASC
+            """,
+            (document_id,),
+        ).fetchall()
+    return [_normalize_knowledge_chunk_row(row) for row in rows]
 
 
 def query_knowledge_documents(filters=None, limit=50):

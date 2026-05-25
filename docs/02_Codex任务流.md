@@ -56,7 +56,7 @@
 3. 配置项写入 `.env`：
    - LLM_PROVIDER=ollama
    - OLLAMA_BASE_URL=http://localhost:11434
-   - OLLAMA_MODEL=qwen2.5:7b
+   - OLLAMA_MODEL=qwen3:30b
 4. 生成失败时回退 mock 数据。
 5. 所有 AI 输出必须要求 JSON 格式。
 6. 做 JSON 解析错误处理。

@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+      <div>
+        <h1 class="h4 mb-1">知识库语义检索</h1>
+        <p class="text-muted mb-0">基于 Ollama embedding + ChromaDB 的语义检索结果。</p>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_list') }}">返回列表</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_new') }}">新增资料</a>
+      </div>
+    </div>
+
+    {% if embedding_probe.status != 'available' %}
+    <div class="alert alert-warning">
+      Embedding 模型不可用，请确认 Ollama 已安装并运行 nomic-embed-text。
+      <div class="small mt-1">{{ embedding_probe.message }}</div>
+    </div>
+    {% else %}
+    <div class="info-strip mb-3">Embedding 模型已就绪：{{ embedding_probe.model_name }} · {{ embedding_probe.base_url }}</div>
+    {% endif %}
+    <div class="small text-muted mb-3">
+      旧索引如果 metadata 不完整，页面会按 `document_id` 反查标题和元信息。点击资料页的“重新索引”可刷新 Chroma metadata。
+    </div>
+
+    <form method="get" action="{{ url_for('knowledge.knowledge_semantic_search_page') }}" class="row g-3">
+      <div class="col-lg-7">
+        <label class="form-label">查询内容</label>
+        <textarea class="form-control" name="query" rows="3" placeholder="输入想检索的教学内容、概念、任务描述或表达">{{ query }}</textarea>
+      </div>
+      <div class="col-lg-2">
+        <label class="form-label">Top K</label>
+        <input class="form-control" type="number" min="1" max="20" name="top_k" value="{{ top_k }}">
+      </div>
+      <div class="col-lg-3">
+        <label class="form-label">资料类型</label>
+        <select class="form-select" name="doc_type">
+          <option value="">全部</option>
+          {% for option in doc_type_options %}
+          <option value="{{ option }}" {% if filters.doc_type == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">年级</label>
+        <select class="form-select" name="grade">
+          <option value="">全部</option>
+          {% for option in grade_options %}
+          <option value="{{ option }}" {% if filters.grade == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">教材</label>
+        <select class="form-select" name="textbook">
+          <option value="">全部</option>
+          {% for option in textbook_options %}
+          <option value="{{ option }}" {% if filters.textbook == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">册别</label>
+        <select class="form-select" name="volume">
+          <option value="">全部</option>
+          {% for option in volume_options %}
+          <option value="{{ option }}" {% if filters.volume == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">单元</label>
+        <select class="form-select" name="unit">
+          <option value="">全部</option>
+          {% for option in unit_options %}
+          <option value="{{ option }}" {% if filters.unit == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">课型</label>
+        <select class="form-select" name="lesson_type">
+          <option value="">全部</option>
+          {% for option in lesson_type_options %}
+          <option value="{{ option }}" {% if filters.lesson_type == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 d-flex gap-2">
+        <button class="btn btn-primary" type="submit">开始检索</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_semantic_search_page') }}">重置</a>
+      </div>
+    </form>
+  </div>
+</section>
+
+{% if search_error %}
+<div class="alert alert-danger">{{ search_error }}</div>
+{% endif %}
+
+{% if query and results %}
+<section class="d-grid gap-3">
+  {% for item in results %}
+  <article class="card app-card">
+    <div class="card-body">
+      <div class="d-flex justify-content-between flex-wrap gap-2 mb-2">
+        <div>
+          <h2 class="h6 mb-1">{{ item.title or item.document_title or '未命名资料' }}</h2>
+          <div class="text-muted small">
+            {{ item.doc_type or item.document_doc_type or '—' }} ·
+            {{ item.grade or item.document_grade or '—' }} ·
+            {{ item.textbook or item.document_textbook or '—' }} ·
+            {{ item.volume or item.document_volume or '—' }} ·
+            {{ item.unit or item.document_unit or '—' }} ·
+            {{ item.lesson_type or item.document_lesson_type or '—' }}
+          </div>
+        </div>
+        <div class="text-end small text-muted">
+          <div>Distance: {{ '%.4f'|format(item.distance) if item.distance is not none else '—' }}</div>
+          <div>Score: {{ '%.4f'|format(item.score) if item.score is not none else '—' }}</div>
+        </div>
+      </div>
+      <div class="border rounded-3 p-3 bg-light mb-3">
+        <div class="small text-muted mb-2">相似片段</div>
+        <pre class="mb-0" style="white-space: pre-wrap; word-break: break-word;">{{ item.chunk_text }}</pre>
+      </div>
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="small text-muted">Chunk #{{ item.chunk_index if item.chunk_index is not none else '—' }} · {{ item.chroma_id }}</div>
+        {% if item.document_id %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('knowledge.knowledge_detail', doc_id=item.document_id) }}">查看原资料</a>
+        {% endif %}
+      </div>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% elif query %}
+<div class="info-strip">没有检索到结果，请调整查询词或筛选条件。</div>
+{% else %}
+<div class="info-strip">输入查询内容后即可进行语义检索。</div>
+{% endif %}
+{% endblock %}

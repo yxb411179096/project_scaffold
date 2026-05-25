@@ -8,6 +8,7 @@ OpenAI while keeping the same output schema and fallback behavior.
 import json
 
 from services.llm_service import call_agent_json
+from services.knowledge_retrieval_service import format_knowledge_context_for_prompt
 from services.mock_ai_service import normalize_lesson_type
 
 
@@ -180,7 +181,13 @@ def _normalize_lesson_design(payload, fallback):
     }
 
 
-def _lesson_design_prompts(lesson_request, fallback):
+def _knowledge_context_block(knowledge_context):
+    if not knowledge_context:
+        return ""
+    return "\n\n" + format_knowledge_context_for_prompt(knowledge_context)
+
+
+def _lesson_design_prompts(lesson_request, fallback, knowledge_context=None):
     system_prompt = """
 You are a senior high school English teaching designer.
 Return JSON only.
@@ -194,6 +201,8 @@ Lesson request:
 
 Fallback draft:
 {json.dumps(fallback, ensure_ascii=False, indent=2)}
+
+{_knowledge_context_block(knowledge_context)}
 
 Return one JSON object with exactly these keys:
 - teaching_objectives: array of 3 concise strings
@@ -210,11 +219,12 @@ Requirements:
     return system_prompt.strip(), user_prompt.strip()
 
 
-def generate_lesson_design(lesson_request):
+def generate_lesson_design(lesson_request, knowledge_context=None):
     """Build a structured teaching design from the normalized request."""
 
     fallback = _build_rule_lesson_design(lesson_request)
-    system_prompt, user_prompt = _lesson_design_prompts(lesson_request, fallback)
+    knowledge_context = knowledge_context or lesson_request.get("knowledge_context")
+    system_prompt, user_prompt = _lesson_design_prompts(lesson_request, fallback, knowledge_context=knowledge_context)
     payload = call_agent_json(
         "lesson_design_agent",
         {

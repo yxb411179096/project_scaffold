@@ -149,6 +149,74 @@
     </section>
     {% endif %}
 
+    <section class="app-card p-4 mb-4">
+      <div class="section-kicker">Knowledge Context</div>
+      <h2 class="section-title mb-3">知识库参考资料</h2>
+      {% if not task.use_knowledge_base %}
+      <div class="info-strip">当前课件未启用知识库增强生成。</div>
+      {% else %}
+      <div class="meta-grid mb-3">
+        <div class="meta-card">
+          <div class="meta-label">检索状态</div>
+          <div class="meta-value">
+            {% if knowledge_context_view.failed %}
+            失败
+            {% elif knowledge_context_view.result_count > 0 %}
+            成功
+            {% else %}
+            未检索到匹配资料
+            {% endif %}
+          </div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">命中数量</div>
+          <div class="meta-value">{{ knowledge_context_view.result_count }}</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">查询语句</div>
+          <div class="meta-value knowledge-query-text">{{ knowledge_context_view.query or '—' }}</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">检索设置</div>
+          <div class="meta-value">top_k={{ knowledge_context_view.top_k }} · {{ knowledge_context_view.relaxed_level_label }}</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">Used Filters</div>
+          <div class="meta-value knowledge-query-text">{{ knowledge_context_view.used_filters | tojson }}</div>
+        </div>
+      </div>
+      {% if knowledge_context_view.failed %}
+      <div class="warning-note mb-3">知识库增强生成未生效：{{ knowledge_context_view.error or '语义检索失败。' }}</div>
+      {% elif knowledge_context_view.result_count == 0 %}
+      <div class="info-strip mb-3">知识库增强生成未生效：未找到已索引资料。系统已使用普通生成。</div>
+      {% endif %}
+      {% if knowledge_context_view.results %}
+      <div class="knowledge-result-list">
+        {% for item in knowledge_context_view.results %}
+        <article class="knowledge-result-card">
+          <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+            <div>
+              <h3 class="h6 mb-1">{{ item.title or '未命名资料' }}</h3>
+              <div class="small text-muted">{{ item.doc_type or '—' }} · {{ item.grade or '—' }} / {{ item.textbook or '—' }} / {{ item.volume or '—' }} / {{ item.unit or '—' }} / {{ item.lesson_type or '—' }}</div>
+            </div>
+            <div class="knowledge-score-stack">
+              <span class="badge text-bg-light">Score {{ '%.3f'|format(item.score) if item.score is not none else '—' }}</span>
+              <span class="badge text-bg-light">Distance {{ '%.3f'|format(item.distance) if item.distance is not none else '—' }}</span>
+            </div>
+          </div>
+          <div class="knowledge-snippet">{{ item.chunk_text }}</div>
+          {% if item.document_id %}
+          <div class="mt-3">
+            <a class="btn btn-sm btn-outline-primary" href="{{ url_for('knowledge.knowledge_detail', doc_id=item.document_id) }}">查看原资料</a>
+          </div>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endif %}
+    </section>
+
     {% if selected_slide %}
     <section class="app-card p-4 mb-4">
       <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">

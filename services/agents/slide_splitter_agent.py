@@ -9,6 +9,7 @@ import json
 import re
 
 from services.llm_service import call_agent_json
+from services.knowledge_retrieval_service import format_knowledge_context_for_prompt
 from services.mock_ai_service import normalize_lesson_type
 
 
@@ -409,7 +410,13 @@ def _normalize_slides(payload, fallback):
     return normalized
 
 
-def _splitter_prompts(lesson_request, manuscript_analysis, lesson_structure, fallback):
+def _knowledge_context_block(knowledge_context):
+    if not knowledge_context:
+        return ""
+    return "\n\n" + format_knowledge_context_for_prompt(knowledge_context)
+
+
+def _splitter_prompts(lesson_request, manuscript_analysis, lesson_structure, fallback, knowledge_context=None):
     system_prompt = """
 You convert English lesson manuscripts into concise PPT slides.
 Return JSON only.
@@ -429,6 +436,8 @@ Lesson structure:
 
 Fallback slide draft:
 {json.dumps(fallback, ensure_ascii=False, indent=2)}
+
+{_knowledge_context_block(knowledge_context)}
 
 Return one JSON object with a "slides" array.
 Each slide must include:
@@ -451,7 +460,7 @@ Requirements:
     return system_prompt.strip(), user_prompt.strip()
 
 
-def split_manuscript_into_slides(lesson_request, manuscript_analysis, lesson_structure):
+def split_manuscript_into_slides(lesson_request, manuscript_analysis, lesson_structure, knowledge_context=None):
     """Split manuscript structure into PPT-ready slide JSON."""
 
     fallback = _build_rule_slides(lesson_request, manuscript_analysis, lesson_structure)
@@ -460,6 +469,7 @@ def split_manuscript_into_slides(lesson_request, manuscript_analysis, lesson_str
         manuscript_analysis,
         lesson_structure,
         fallback,
+        knowledge_context=knowledge_context,
     )
     payload = call_agent_json(
         "slide_splitter_agent",
@@ -481,6 +491,7 @@ def regenerate_manuscript_slide(
     lesson_structure,
     current_slide,
     neighbor_context=None,
+    knowledge_context=None,
 ):
     """Regenerate one manuscript slide with manuscript text and nearby slide context."""
 
@@ -516,6 +527,8 @@ Relevant manuscript excerpt:
 
 Fallback slide:
 {json.dumps(fallback_slide, ensure_ascii=False, indent=2)}
+
+{_knowledge_context_block(knowledge_context)}
 
 Return one JSON object with exactly these keys:
 - slide_index

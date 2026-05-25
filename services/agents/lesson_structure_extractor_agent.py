@@ -9,6 +9,7 @@ import json
 import re
 
 from services.llm_service import call_agent_json
+from services.knowledge_retrieval_service import format_knowledge_context_for_prompt
 from services.mock_ai_service import normalize_lesson_type
 
 
@@ -420,7 +421,13 @@ def _normalize_structure(payload, fallback):
     }
 
 
-def _structure_prompts(lesson_request, manuscript_text, manuscript_analysis, fallback):
+def _knowledge_context_block(knowledge_context):
+    if not knowledge_context:
+        return ""
+    return "\n\n" + format_knowledge_context_for_prompt(knowledge_context)
+
+
+def _structure_prompts(lesson_request, manuscript_text, manuscript_analysis, fallback, knowledge_context=None):
     system_prompt = """
 You extract senior high school English lesson structure from manuscripts.
 Return JSON only.
@@ -439,6 +446,8 @@ Manuscript:
 
 Fallback structure:
 {json.dumps(fallback, ensure_ascii=False, indent=2)}
+
+{_knowledge_context_block(knowledge_context)}
 
 Return one JSON object with exactly these keys:
 - learning_objectives
@@ -462,7 +471,7 @@ Requirements:
     return system_prompt.strip(), user_prompt.strip()
 
 
-def extract_lesson_structure(lesson_request, manuscript_text, manuscript_analysis):
+def extract_lesson_structure(lesson_request, manuscript_text, manuscript_analysis, knowledge_context=None):
     """Extract a teaching structure from the manuscript text."""
 
     fallback = _build_rule_structure(lesson_request, manuscript_text, manuscript_analysis)
@@ -471,6 +480,7 @@ def extract_lesson_structure(lesson_request, manuscript_text, manuscript_analysi
         manuscript_text,
         manuscript_analysis,
         fallback,
+        knowledge_context=knowledge_context,
     )
     payload = call_agent_json(
         "lesson_structure_extractor_agent",

@@ -10,6 +10,7 @@ import json
 
 from services.agents.json_schema_checker import check_schema
 from services.llm_service import call_agent_json
+from services.knowledge_retrieval_service import format_knowledge_context_for_prompt
 from services.mock_ai_service import normalize_lesson_type
 
 
@@ -612,7 +613,13 @@ def generate_rule_slide_content(lesson_request, teaching_design, ppt_outline):
     return check_schema(slides)
 
 
-def generate_slide_content(lesson_request, teaching_design, ppt_outline):
+def _knowledge_context_block(knowledge_context):
+    if not knowledge_context:
+        return ""
+    return "\n\n" + format_knowledge_context_for_prompt(knowledge_context)
+
+
+def generate_slide_content(lesson_request, teaching_design, ppt_outline, knowledge_context=None):
     """Generate classroom-ready slide content for the full outline."""
 
     fallback = generate_rule_slide_content(lesson_request, teaching_design, ppt_outline)
@@ -628,6 +635,7 @@ def generate_slide_content(lesson_request, teaching_design, ppt_outline):
             teaching_design,
             outline_chunk,
             fallback_chunk,
+            knowledge_context=knowledge_context,
         )
         payload = call_agent_json(
             "slide_content_agent",
@@ -648,6 +656,7 @@ def generate_single_slide_content(
     teaching_design,
     slide_outline,
     regenerate=False,
+    knowledge_context=None,
 ):
     """Generate or regenerate a single slide from outline data."""
 
@@ -663,6 +672,7 @@ def generate_single_slide_content(
         slide_outline,
         fallback,
         regenerate=regenerate,
+        knowledge_context=knowledge_context,
     )
     payload = call_agent_json(
         "slide_content_agent",
@@ -746,7 +756,7 @@ def _normalize_single_slide(payload, fallback):
     return _normalize_slide(payload, fallback)
 
 
-def _slide_content_prompts(lesson_request, teaching_design, ppt_outline, fallback):
+def _slide_content_prompts(lesson_request, teaching_design, ppt_outline, fallback, knowledge_context=None):
     system_prompt = """
 You are a senior high school English PPT slide writer.
 Return JSON only.
@@ -766,6 +776,8 @@ PPT outline:
 
 Rule-based draft:
 {json.dumps(fallback, ensure_ascii=False, indent=2)}
+
+{_knowledge_context_block(knowledge_context)}
 
 Return one JSON object with a "slides" array.
 Each slide must include exactly these fields:
@@ -794,6 +806,7 @@ def _single_slide_content_prompts(
     slide_outline,
     fallback,
     regenerate=False,
+    knowledge_context=None,
 ):
     system_prompt = """
 You are a senior high school English PPT slide writer.
@@ -821,6 +834,8 @@ Rule-based draft:
 {json.dumps(fallback, ensure_ascii=False, indent=2)}
 
 {extra_instruction}
+
+{_knowledge_context_block(knowledge_context)}
 
 Return one JSON object with a "slide" object.
 The slide must include exactly these fields:

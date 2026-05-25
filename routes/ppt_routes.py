@@ -13,6 +13,7 @@ from models.database import (
     delete_ai_model_config,
     get_agent_model_binding,
     get_ai_model_config,
+    get_lesson_task,
     get_db,
     list_ai_model_configs,
     list_agent_model_bindings,
@@ -23,6 +24,7 @@ from models.database import (
     update_agent_model_binding,
     update_ai_model_config,
     update_ai_model_test_result,
+    update_lesson_task,
 )
 from config import MANUSCRIPT_UPLOAD_DIR, MAX_MANUSCRIPT_FILE_SIZE
 from services.document_parse_service import (
@@ -33,6 +35,7 @@ from services.document_parse_service import (
 )
 from services.agents import generate_rule_page_structure_detection
 from services.docx_export_service import export_docx
+from services.knowledge_retrieval_service import load_knowledge_context, retrieve_knowledge_context
 from services.llm_service import (
     describe_runtime_model,
     generate_slides,
@@ -460,6 +463,150 @@ def blank_manuscript_form():
         "manuscript_preserve_polish_mode": "skip",
         "manuscript_text": "",
         "extra_requirements": "",
+        "use_knowledge_base": False,
+        "knowledge_top_k": "5",
+        "knowledge_query": "",
+    }
+
+
+def _form_knowledge_enabled(form):
+    return str(form.get("use_knowledge_base") or "").strip().lower() in {"1", "true", "yes", "on", "checked"}
+
+
+def _knowledge_top_k_from_form(form, default=5):
+    try:
+        top_k = int(form.get("knowledge_top_k") or default)
+    except (TypeError, ValueError):
+        top_k = default
+    return max(1, min(top_k, 10))
+
+
+def _maybe_build_knowledge_context(task, manuscript_text=None):
+    if not task.get("use_knowledge_base"):
+        return None
+
+    existing = load_knowledge_context(task.get("knowledge_context_json") or task.get("knowledge_context"))
+    if existing:
+        task["knowledge_context"] = existing
+        task["knowledge_context_json"] = json.dumps(existing, ensure_ascii=False)
+        task["knowledge_query"] = existing.get("query") or task.get("knowledge_query") or ""
+        task["knowledge_top_k"] = existing.get("top_k") or task.get("knowledge_top_k") or 5
+        return existing
+
+    context = retrieve_knowledge_context(
+        task,
+        query=task.get("knowledge_query"),
+        top_k=task.get("knowledge_top_k") or 5,
+        manuscript_text=manuscript_text,
+    )
+    task["knowledge_context"] = context
+    task["knowledge_context_json"] = json.dumps(context, ensure_ascii=False)
+    task["knowledge_query"] = context.get("query") or task.get("knowledge_query") or ""
+    task["knowledge_top_k"] = context.get("top_k") or task.get("knowledge_top_k") or 5
+    return context
+
+
+def normalize_relaxed_level(value):
+    if value is None:
+        return "unknown"
+    if isinstance(value, str):
+        normalized = value.strip()
+        if not normalized:
+            return "unknown"
+        lowered = normalized.lower()
+        level_map = {
+            "0": "exact",
+            "1": "without_unit",
+            "2": "without_volume",
+            "3": "lesson_type_only",
+            "4": "no_filters",
+            "exact": "exact",
+            "without_unit": "without_unit",
+            "without_volume": "without_volume",
+            "lesson_type_only": "lesson_type_only",
+            "no_filters": "no_filters",
+        }
+        return level_map.get(lowered, normalized)
+    if isinstance(value, bool):
+        return "unknown"
+    if isinstance(value, (int, float)):
+        if int(value) == 0:
+            return "exact"
+        if int(value) == 1:
+            return "without_unit"
+        if int(value) == 2:
+            return "without_volume"
+        if int(value) == 3:
+            return "lesson_type_only"
+        if int(value) == 4:
+            return "no_filters"
+        return str(int(value))
+    return str(value).strip() or "unknown"
+
+
+def _relaxed_level_label(value):
+    labels = {
+        "exact": "精确匹配",
+        "without_unit": "已放宽单元",
+        "without_volume": "已放宽册别",
+        "lesson_type_only": "仅按课型匹配",
+        "no_filters": "无筛选语义检索",
+        "unknown": "未知",
+    }
+    normalized = normalize_relaxed_level(value)
+    return labels.get(normalized, normalized)
+
+
+def _knowledge_context_view(task):
+    context = load_knowledge_context(task.get("knowledge_context_json") or task.get("knowledge_context"))
+    if not context:
+        return {
+            "enabled": bool(task.get("use_knowledge_base")),
+            "status": "未启用" if not task.get("use_knowledge_base") else "未检索",
+            "query": task.get("knowledge_query") or "",
+            "top_k": task.get("knowledge_top_k") or 5,
+            "result_count": 0,
+            "relaxed": False,
+            "relaxed_level": "unknown",
+            "relaxed_level_label": "未知",
+            "used_filters": {},
+            "failed": False,
+            "error": "",
+            "results": [],
+        }
+
+    results = []
+    for item in context.get("results") or []:
+        results.append(
+            {
+                "document_id": item.get("document_id"),
+                "title": item.get("title") or item.get("document_title") or "未命名资料",
+                "doc_type": item.get("doc_type") or item.get("document_doc_type") or "",
+                "grade": item.get("grade") or item.get("document_grade") or "",
+                "textbook": item.get("textbook") or item.get("document_textbook") or "",
+                "volume": item.get("volume") or item.get("document_volume") or "",
+                "unit": item.get("unit") or item.get("document_unit") or "",
+                "lesson_type": item.get("lesson_type") or item.get("document_lesson_type") or "",
+                "tags": item.get("tags") or item.get("document_tags") or "",
+                "chunk_text": item.get("chunk_text") or "",
+                "distance": item.get("distance"),
+                "score": item.get("score"),
+            }
+        )
+
+    return {
+        "enabled": bool(context.get("enabled", True)),
+        "status": "失败" if context.get("failed") else "成功" if results else "未检索到匹配资料",
+        "query": context.get("query") or "",
+        "top_k": context.get("top_k") or 5,
+        "result_count": len(results),
+        "relaxed": bool(context.get("relaxed")),
+        "relaxed_level": normalize_relaxed_level(context.get("relaxed_level")),
+        "relaxed_level_label": _relaxed_level_label(context.get("relaxed_level")),
+        "used_filters": context.get("used_filters") or {},
+        "failed": bool(context.get("failed")),
+        "error": context.get("error") or "",
+        "results": results,
     }
 
 
@@ -577,12 +724,15 @@ def favicon():
 def new_task():
     if request.method == "POST":
         form = request.form.to_dict()
+        use_knowledge_base = _form_knowledge_enabled(request.form)
+        knowledge_top_k = _knowledge_top_k_from_form(request.form)
+        knowledge_query = str(request.form.get("knowledge_query") or "").strip()
         with get_db() as conn:
             cur = conn.execute(
                 """
                 INSERT INTO lesson_tasks
-                (course_title, grade, textbook, unit, lesson_type, duration, student_level, style, extra_requirements, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (course_title, grade, textbook, unit, lesson_type, duration, student_level, style, extra_requirements, use_knowledge_base, knowledge_query, knowledge_top_k, knowledge_context_json, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     form.get("course_title"),
@@ -594,6 +744,10 @@ def new_task():
                     form.get("student_level"),
                     form.get("style"),
                     form.get("extra_requirements"),
+                    1 if use_knowledge_base else 0,
+                    knowledge_query,
+                    knowledge_top_k,
+                    "",
                     "ai_generate",
                     "",
                     "",
@@ -612,6 +766,13 @@ def new_task():
 
         task = dict(form)
         task["id"] = task_id
+        task["use_knowledge_base"] = use_knowledge_base
+        task["knowledge_query"] = knowledge_query
+        task["knowledge_top_k"] = knowledge_top_k
+        task["knowledge_context_json"] = ""
+        knowledge_context = _maybe_build_knowledge_context(task)
+        if knowledge_context is not None:
+            update_lesson_task(task_id, task)
         slides = generate_slides(task)
         if not slides:
             with get_db() as conn:
@@ -639,6 +800,9 @@ def from_manuscript():
 
     if request.method == "POST":
         form_data.update(request.form.to_dict())
+        form_data["use_knowledge_base"] = _form_knowledge_enabled(request.form)
+        form_data["knowledge_top_k"] = str(_knowledge_top_k_from_form(request.form))
+        form_data["knowledge_query"] = str(request.form.get("knowledge_query") or "").strip()
         manuscript_text = str(request.form.get("manuscript_text") or "").strip()
         uploaded_file = request.files.get("manuscript_file")
         file_text = ""
@@ -723,8 +887,8 @@ def from_manuscript():
             cur = conn.execute(
                 """
                 INSERT INTO lesson_tasks
-                (course_title, grade, textbook, unit, lesson_type, duration, student_level, style, extra_requirements, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (course_title, grade, textbook, unit, lesson_type, duration, student_level, style, extra_requirements, use_knowledge_base, knowledge_query, knowledge_top_k, knowledge_context_json, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     form_data.get("course_title") or "文案转 PPT 课件",
@@ -736,6 +900,10 @@ def from_manuscript():
                     form_data.get("student_level"),
                     form_data.get("style"),
                     form_data.get("extra_requirements"),
+                    1 if form_data["use_knowledge_base"] else 0,
+                    form_data["knowledge_query"],
+                    _knowledge_top_k_from_form(request.form),
+                    "",
                     generation_mode,
                     selected_strategy,
                     selected_completion_mode,
@@ -762,6 +930,14 @@ def from_manuscript():
         task["manuscript_raw_text"] = combined_text
         task["manuscript_analysis_json"] = ""
         task["source_word_count"] = source_word_count
+        task["use_knowledge_base"] = form_data["use_knowledge_base"]
+        task["knowledge_query"] = form_data["knowledge_query"]
+        task["knowledge_top_k"] = _knowledge_top_k_from_form(request.form)
+        task["knowledge_context_json"] = ""
+
+        knowledge_context = _maybe_build_knowledge_context(task, combined_text)
+        if knowledge_context is not None:
+            update_lesson_task(task_id, task)
 
         result = generate_slides_from_manuscript(task, combined_text)
         slides = result.get("ppt_json") or []
@@ -883,6 +1059,7 @@ def edit_task(task_id):
     selected_slide = get_slide_by_id(slides, request.args.get("slide_id", type=int))
     slide_json_preview = json.dumps(slides, ensure_ascii=False, indent=2)
     manuscript_preview, manuscript_analysis = build_manuscript_preview(task)
+    knowledge_context_view = _knowledge_context_view(task)
     llm_call_logs = list(reversed(list_llm_call_logs(task_id, limit=60)))
     for log in llm_call_logs:
         log["agent_label"] = agent_display_name(log.get("agent_name"))
@@ -897,6 +1074,7 @@ def edit_task(task_id):
         is_manuscript_task=is_manuscript_task(task),
         manuscript_preview=manuscript_preview,
         manuscript_analysis=manuscript_analysis,
+        knowledge_context_view=knowledge_context_view,
         selected_slide=selected_slide,
         slide_json_preview=slide_json_preview,
         llm_call_logs=llm_call_logs,
