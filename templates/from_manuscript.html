@@ -63,6 +63,14 @@
             </select>
           </div>
           <div class="col-md-4">
+            <label class="form-label">课件风格模板</label>
+            <select name="ppt_style" id="ppt_style" class="form-select">
+              {% for key, label in ppt_style_options %}
+              <option value="{{ key }}" {% if form_data.ppt_style == key %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
             <label class="form-label">文件上传</label>
             <input type="file" name="manuscript_file" class="form-control" accept=".txt,.md,.docx,.pdf">
           </div>
@@ -148,6 +156,9 @@
 (() => {
   const textarea = document.getElementById('manuscript_text');
   const strategySelect = document.getElementById('manuscript_generation_strategy');
+  const lessonTypeSelect = document.querySelector('select[name="lesson_type"]');
+  const styleSelect = document.querySelector('select[name="style"]');
+  const pptStyleSelect = document.getElementById('ppt_style');
   const userSelectedInput = document.getElementById('manuscript_generation_strategy_user_selected');
   if (!textarea || !strategySelect) return;
   const markerPattern = /(第\s*\d+\s*页|page\s*\d+|slide\s*\d+|幻灯片\s*\d+|[一二三四五六七八九十]+[、.．]\s*(封面|学习目标|导入|总结|作业))/i;
@@ -169,6 +180,26 @@
   });
   textarea.addEventListener('input', updateStrategy);
   updateStrategy();
+
+  if (lessonTypeSelect && styleSelect && pptStyleSelect) {
+    let styleManualChanged = false;
+    const updatePreset = () => {
+      if (styleManualChanged) return;
+      if (styleSelect.value === '公开课') {
+        pptStyleSelect.value = 'open_class';
+        return;
+      }
+      const lt = (lessonTypeSelect.value || '').toLowerCase();
+      if (lt === 'reading') pptStyleSelect.value = 'reading_focus';
+      else if (lt === 'writing') pptStyleSelect.value = 'writing_focus';
+      else if (lt === 'grammar') pptStyleSelect.value = 'grammar_focus';
+      else pptStyleSelect.value = 'default';
+    };
+    pptStyleSelect.addEventListener('change', () => { styleManualChanged = true; });
+    lessonTypeSelect.addEventListener('change', updatePreset);
+    styleSelect.addEventListener('change', updatePreset);
+    updatePreset();
+  }
 })();
 </script>
 {% endblock %}

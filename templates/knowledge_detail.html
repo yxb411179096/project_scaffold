@@ -24,10 +24,51 @@
         <form method="post" action="{{ url_for('knowledge.knowledge_reparse', doc_id=doc.id) }}">
           <button type="submit" class="btn btn-outline-warning">重新解析</button>
         </form>
+        <form method="post" action="{{ url_for('knowledge.knowledge_suggest_metadata', doc_id=doc.id) }}">
+          <button type="submit" class="btn btn-outline-info">建议元信息</button>
+        </form>
+        <form method="post" action="{{ url_for('knowledge.knowledge_mark_metadata_reviewed', doc_id=doc.id) }}">
+          <button type="submit" class="btn btn-outline-secondary">标记已确认</button>
+        </form>
         <form method="post" action="{{ url_for('knowledge.knowledge_delete', doc_id=doc.id) }}" onsubmit="return confirm('确定删除该资料吗？此操作不可恢复。')">
           <button type="submit" class="btn btn-outline-danger">删除</button>
         </form>
       </div>
+    </div>
+  </div>
+</section>
+
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <h2 class="h6">元信息质量</h2>
+    <div class="row g-2">
+      <div class="col-md-3"><strong>Score：</strong>{{ doc.metadata_quality_score or 0 }}</div>
+      <div class="col-md-3"><strong>已确认：</strong>{% if doc.metadata_reviewed %}是{% else %}否{% endif %}</div>
+      <div class="col-md-3"><strong>整本教材：</strong>{% if doc.is_whole_book %}是{% else %}否{% endif %}</div>
+      <div class="col-md-3"><strong>需重索引：</strong>{% if need_reindex %}是{% else %}否{% endif %}</div>
+      <div class="col-12"><strong>Warnings：</strong><span style="white-space: pre-wrap;">{{ doc.metadata_warnings or "—" }}</span></div>
+    </div>
+    {% if doc.is_whole_book %}
+    <div class="alert alert-warning mt-3 mb-0">该资料可能是整本教材。为了提高 RAG 命中准确性，建议按 Unit 拆分或补充单元级资料。</div>
+    {% endif %}
+    {% if need_reindex %}
+    <div class="alert alert-info mt-3 mb-0">文本已变化或尚未索引，建议重新建立向量索引。</div>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <h2 class="h6">建议元信息</h2>
+    <div class="row g-2">
+      <div class="col-md-6"><strong>title：</strong>{{ doc.title or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_title or "—" }}</span></div>
+      <div class="col-md-6"><strong>doc_type：</strong>{{ doc.doc_type or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_doc_type or "—" }}</span></div>
+      <div class="col-md-6"><strong>grade：</strong>{{ doc.grade or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_grade or "—" }}</span></div>
+      <div class="col-md-6"><strong>textbook：</strong>{{ doc.textbook or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_textbook or "—" }}</span></div>
+      <div class="col-md-6"><strong>volume：</strong>{{ doc.volume or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_volume or "—" }}</span></div>
+      <div class="col-md-6"><strong>unit：</strong>{{ doc.unit or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_unit or "—" }}</span></div>
+      <div class="col-md-6"><strong>lesson_type：</strong>{{ doc.lesson_type or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_lesson_type or "—" }}</span></div>
+      <div class="col-md-6"><strong>tags：</strong>{{ doc.tags or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_tags or "—" }}</span></div>
     </div>
   </div>
 </section>

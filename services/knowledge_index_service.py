@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 
 from config import CHROMA_COLLECTION
 from models.database import (
@@ -54,6 +55,7 @@ def index_knowledge_document(doc_id):
         return {"ok": False, "message": "知识资料不存在。"}
 
     text = _load_document_text(document)
+    text_hash = hashlib.sha1(text.encode("utf-8", errors="ignore")).hexdigest() if text else ""
     if not text.strip():
         _update_document_state(
             document,
@@ -129,6 +131,7 @@ def index_knowledge_document(doc_id):
         indexed_at=now(),
         chunk_count=len(chunk_rows),
         vector_collection=CHROMA_COLLECTION,
+        last_indexed_text_hash=text_hash,
     )
     return {
         "ok": True,

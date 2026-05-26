@@ -65,6 +65,14 @@
               {% endfor %}
             </select>
           </div>
+          <div class="col-md-6">
+            <label class="form-label">课件风格模板</label>
+            <select name="ppt_style" id="ppt_style" class="form-select">
+              {% for key, label in ppt_style_options %}
+              <option value="{{ key }}" {% if key == recommended_ppt_style %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
           <div class="col-12">
             <label class="form-label">补充要求</label>
             <textarea name="extra_requirements" class="form-control" rows="4" placeholder="例如：增加课堂互动，适合公开课展示，英文不要太难"></textarea>
@@ -110,4 +118,29 @@
     </section>
   </div>
 </div>
+<script>
+(() => {
+  const lessonType = document.querySelector('select[name="lesson_type"]');
+  const styleSelect = document.querySelector('select[name="style"]');
+  const pptStyle = document.getElementById('ppt_style');
+  if (!lessonType || !styleSelect || !pptStyle) return;
+  let manual = false;
+  const recommend = () => {
+    if (manual) return;
+    if (styleSelect.value === '公开课') {
+      pptStyle.value = 'open_class';
+      return;
+    }
+    const lt = (lessonType.value || '').toLowerCase();
+    if (lt === 'reading') pptStyle.value = 'reading_focus';
+    else if (lt === 'writing') pptStyle.value = 'writing_focus';
+    else if (lt === 'grammar') pptStyle.value = 'grammar_focus';
+    else pptStyle.value = 'default';
+  };
+  pptStyle.addEventListener('change', () => { manual = true; });
+  lessonType.addEventListener('change', recommend);
+  styleSelect.addEventListener('change', recommend);
+  recommend();
+})();
+</script>
 {% endblock %}

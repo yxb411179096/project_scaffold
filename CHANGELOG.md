@@ -1,5 +1,66 @@
 # CHANGELOG
 
+## 0.22.0
+- 新增知识库治理模块：新增 `/knowledge/governance`，支持资料元信息质量查看、整本教材识别、风险筛选与批量重索引入口。
+- 新增资料覆盖页面：新增 `/knowledge/coverage`，按教材 / 册别 / Unit 展示 `教材 / Reading / Vocabulary / 教案 / Writing` 覆盖情况与缺失建议。
+- 新增治理路由：
+  - `GET /knowledge/governance`
+  - `GET /knowledge/coverage`
+  - `POST /knowledge/bulk-reindex`
+  - `POST /knowledge/<doc_id>/mark-metadata-reviewed`
+  - `POST /knowledge/<doc_id>/suggest-metadata`
+  - `POST /knowledge/create-unit-placeholders`
+- 新增 `services/knowledge_governance_service.py`：
+  - 元信息质量评分 `evaluate_document_metadata`
+  - 规则化元信息建议 `suggest_metadata`
+  - 覆盖统计 `get_knowledge_coverage`
+  - Unit 占位创建 `create_unit_placeholders`
+  - 需重索引识别 `documents_need_reindex`
+- 扩展 `knowledge_documents` 字段并保持 SQLite 兼容迁移：
+  - `metadata_reviewed`
+  - `metadata_quality_score`
+  - `metadata_warnings`
+  - `is_whole_book`
+  - `suggested_*`
+  - `source_unit_key`
+  - `last_indexed_text_hash`
+- 索引流程增强：`knowledge_index_service` 在索引成功时写入 `last_indexed_text_hash`，为“文本变化重索引”提供依据。
+- 知识库列表与详情页增强：
+  - 列表页增加“知识库治理 / 资料覆盖情况”入口与治理 badge（质量分、已确认、整本教材、需重索引）。
+  - 详情页新增元信息质量卡片、整本教材拆分提示、重索引提示、元信息建议展示。
+- 扩展教材目录映射：补全人教版必修三 Unit 1-5 主题，并保留必修一/必修二已建映射。
+- 新增 `tests_round_022.py`，覆盖治理评分、整本教材识别、建议元信息、覆盖统计、占位去重、重索引识别与新页面可达性。
+
+## 0.21.1
+- 编辑页质量检查增强：新增“展开质量问题详情”，按页展示 `slide 编号 / title / severity / issue code / 建议修改方式`，便于快速定位严重问题。
+- `ppt_quality_check_service.py` 为主要问题码补充修复建议（如内容过密、词汇卡过长、Summary 过空/截断、图形过密等），不再只给笼统“严重问题”提示。
+- 知识库参考资料展示增强：结果卡片明确显示 `title / volume / unit / lesson_type`，当命中资料与当前任务 `volume / unit` 不一致时显示黄色提示并降权展示。
+- 编辑页 `used_filters` 改为中文可读摘要（如：`高一 / 人教版 / 必修二 / Unit 3 / Reading`），不再显示 Unicode 转义 JSON。
+- `knowledge_retrieval_service.py` 检索优化：
+  - 保持 `textbook + volume + unit (+ lesson_type)` 优先过滤阶段；
+  - `no_filters` 仍仅作为最后兜底；
+  - 结果按 metadata 匹配度重排（同 volume+unit+lesson_type 优先，其次同 volume+unit）。
+- `build_knowledge_query()` 对“人教版 必修二 Unit 3 Reading”自动注入核心关键词：`The Internet`、`Stronger Together`、`How We Have Been Changed by the Internet`、`Jan Tchamani`、`online community`、`digital divide`、`Reading and Thinking`。
+- 新增 `tests_round_0211.py`，覆盖 Unit 3 查询词增强与质量详情字段完整性回归。
+
+## 0.21.0
+- 新增课件风格模板系统（Style Preset）：支持 `default`、`open_class`、`fresh_classroom`、`reading_focus`、`writing_focus`、`grammar_focus` 六套风格。
+- 新增 `services/ppt_style_service.py`，统一管理风格配置、显示名称和按课型/生成风格的默认推荐逻辑。
+- 新建课件 `/ppt/new` 与文案转 PPT `/ppt/from-manuscript` 页面新增 `ppt_style` 选择；支持根据 `lesson_type` 自动推荐风格，用户可手动覆盖。
+- 数据库 `lesson_tasks` 新增 `ppt_style` 字段（SQLite 兼容迁移），旧任务为空时按规则自动回退默认风格。
+- `ppt_render_service.py` 渲染接入风格预设：按任务或页面 `ppt_style` 读取视觉皮肤，不改变 `layout_template` 与 `visual_variant` 页面结构逻辑。
+- `ppt_style_config.py` 改为兼容层，基于新风格服务输出渲染器所需颜色与字体配置。
+- 编辑页新增“当前课件风格”显示；预览卡片支持 `style-*` 类名，体现不同风格的基础视觉差异。
+- `ppt_quality_check_service.py` 增加风格信息检查：`style_missing`、`style_not_matching_lesson_type`，并在质量报告中返回 `style_applied`。
+- 新增 `tests_round_021.py`，覆盖风格服务、默认推荐、旧任务回退、模板渲染接收风格、页面字段存在性等回归。
+
+## 0.20.1
+- 修复 0.20.0 后模板页视觉过于单一的问题：`layout_template` 新增 `visual_variant` 并在模板渲染入口按变体分发，恢复目标卡、问题卡、流程卡、词汇卡、讨论面板、总结卡、作业分层、板书结构等差异化页面。
+- `ppt_render_service.py` 新增模板变体渲染分发表（`TEMPLATE_VARIANT_RENDERERS`）及对应渲染函数，模板渲染成功后直接结束，不再继续普通 body 渲染，避免“模板主体 + 普通主体”叠加。
+- 保留模板系统的规则化约束（字号、信息块上限、溢出下沉到 teacher script），在不回退到 0.19 叠加问题的前提下恢复课件视觉层次。
+- `ppt_quality_check_service.py` 增强模板差异化检查：新增 `template_visual_variant_missing`、`template_rendered_as_plain_bullets`、`slide_type_visual_repetition`、`summary_too_plain`、`vocabulary_not_card_like`。
+- 新增 `tests_round_0201.py`，覆盖主要模板 `visual_variant` 映射、模板渲染分发、模板成功渲染不走 plain fallback、旧模板回退兼容路径。
+
 ## 0.17.0
 - 优化 PPTX 多页面视觉布局与教学页面可用性，强化封面、目标、阅读任务、讨论、总结、作业、板书等页面的差异化呈现。
 - `ppt_render_service.py` 强化 Reading 任务卡、词汇卡、讨论任务卡、作业清单等默认文案，移除空泛占位句（如 `Complete the classroom task.` / 空 `Step 1/2/3`）。
@@ -151,6 +212,51 @@
 - 编辑页预览重构：学生可见区域优先展示 `title / visible_content / key_sentence / useful_expressions / image_suggestion / possible_answers`，教师相关 `Purpose / Interaction / Notes` 收纳到“教师信息”区域，降低页面主体噪音。
 - manuscript 任务新增“重新分析文案并生成课件”后，若仍选择保真模式，会继续按原文页结构重跑，不会退化成课型模板页。
 - 完成第十一轮验证：`python -m compileall app.py routes models services` 通过；Flask `test_client` 回归覆盖 AI 自动生成、保真模式 manuscript 生成、普通重构模式 manuscript 生成、编辑页预览、PPTX 导出、DOCX 导出；“The Power of Reading” 测试文案在保真模式下前 5 页与原文页结构对齐，第 4 页 Key Sentence、图片建议、Teacher’s Guide 与 Useful Expressions 均被保留。
+
+## 0.20.0
+- 新增 PPT 设计规范文档体系（skills）：`ppt_design_rules.md`、`senior_english_slide_rules.md`、`slide_density_rules.md`、`reading_lesson_layout_rules.md`，统一页面信息密度、字号下限和教学页展示边界。
+- 新增 `services/layout_template_service.py`，建立布局模板注册表，提供模板参数（`max_blocks`、`max_items_per_block`、`title/body/label/min font`、`overflow_strategy`、`use_graphic` 等）与 slide_type 映射。
+- `layout_planner_agent.py` 增强：在 `layout_plan` 中新增 `layout_template` 输出，形成“布局类型 + 模板约束 + 图形策略”三层规划。
+- `ppt_render_service.py` 新增 `render_by_layout_template(...)` 通用模板渲染入口，模板优先；当模板存在时优先执行模板规则，不足内容自动提示 `More details in teacher script.` 并下沉到 teacher script。
+- `ppt_quality_check_service.py` 接入模板规则校验：检测模板溢出、模板最小字号过低、`big label / small body` 风险，和既有质量检查合并输出。
+- 新增 `tests_round_020.py`，覆盖模板选择、summary/vocabulary约束、最小字号阈值、旧任务兼容导出、质量检查模板风险识别。
+
+## 0.19.3
+- 简化图形组件显示策略，优先保证可读性：PPT 主体遵循“少量核心信息”原则，超过容量的细节统一下沉到 teacher script / DOCX。
+- Reading 课图形分配收敛：默认仅 `careful_reading -> reading_structure`、`vocabulary_focus -> vocabulary_cards`、`summary -> mindmap`；`lead_in/prediction/fast_reading/homework/group_discussion/language_points` 默认不强制图形化。
+- 新增安全渲染降级 `safe_compact_layout(...)`：当图形节点过多或文本过密时自动改为标题 + 3 条核心要点 + 可选 key sentence，避免字体继续缩小和页面拥挤。
+- 优化图形组件密度与信息块上限：discussion、grammar、vocabulary、mindmap、task_steps、reading_structure 均减少显示块数量，并增加 “More details in teacher script.” 提示。
+- 修复词汇卡占位问题：优先输出自然词汇（如 `online community`、`social network`、`digital life`），避免 `Item 1/2/3` 占位词进入 PPT 主体。
+- 强化质量检查：`font_too_small_risk`、`graphic_too_dense`、`hard_truncation_risk` 升级为更高风险级别，并新增 `item_placeholder_risk`、`summary_hard_truncated` 提示，建议使用安全模式渲染或减少主体内容。
+- 新增 `tests_round_0193.py`，覆盖 discussion 简化输出、词汇占位防回归、summary 非硬截断、dense 图形触发安全渲染、Reading 图形默认分配与旧任务导出兼容。
+
+## 0.19.2
+- 优化图形组件字体策略：新增统一字体常量（`GRAPHIC_TITLE_FONT`、`GRAPHIC_CARD_TITLE_FONT`、`GRAPHIC_BODY_FONT`、`GRAPHIC_SMALL_FONT`、`GRAPHIC_MIN_FONT`），并强制正文字号不低于 9，避免页面出现过小字体。
+- 新增 `smart_clip(text, max_chars, preserve_words=True)`，英文优先按单词截断，减少 `main classr...` 这类半词硬截断。
+- 收敛图形内容密度：词汇卡最多 3 张、思维导图最多 4 个分支、任务流程最多 3 步、阅读结构最多 3 块，并对长文本做语义化裁剪。
+- 优化 `render_vocabulary_cards`、`render_grammar_rule_chart`、`render_discussion_grid`、`render_mindmap`、`render_task_steps`、`render_flowchart`、`render_reading_structure` 的布局与文本显示策略，过多细节提示转移到教师讲稿。
+- 增强质量检查：新增/强化 `font_too_small_risk`、`hard_truncation_risk`、`graphic_too_dense`、`vocabulary_card_too_long`、`summary_too_verbose`，用于提前提示页面过密或裁剪风险。
+- 新增 `tests_round_0192.py`，覆盖 `smart_clip` 半词截断保护、图形组件内容上限、最小字号约束、图形过密识别与旧任务导出兼容。
+
+## 0.19.1
+- 修复图形组件与普通主体内容重复渲染导致的页面图层叠加问题：新增 `has_active_graphic()`，当图形有效时进入图形专用渲染路径，不再重复绘制普通 bullet/body 卡片。
+- `ppt_render_service.py` 增加统一图形安全区域 `GRAPHIC_AREA`，图形组件仅在该区域内绘制；标题区、页脚区和图形区互相分离，降低重叠风险。
+- 图形渲染流程改为整段 `try/except` 互斥回退：图形失败时完整回退到旧布局，不出现“半图形 + 半普通内容”的混合状态。
+- 当 `image_suggestion` 与图形组件同时存在时，PPT 主体优先渲染图形，图片建议降级为底部小提示，避免大面积重复占位。
+- `ppt_graphics_service.py` 优化组件内部布局：统一基于传入 area 计算位置，限制卡片数量（最多 3-4），并对长文本截断，减少组件内部重叠。
+- `layout_planner_agent.py` 调整 Reading 图形分配：`lead_in` 不再分配 `task_steps`，优先 `discussion_grid`；`fast_reading` 使用 `flowchart`，`careful_reading` 使用 `reading_structure`，`summary` 使用 `mindmap`。
+- `ppt_quality_check_service.py` 新增 `duplicate_rendering_risk` 检查项，对“图形组件已启用但可见文本过多”给出风险提示。
+- `tests_round_019.py` 更新互斥回归：验证图形模式下不调用普通 body 渲染路径、图形失败可回退、`lead_in` 不再分配 `task_steps`、`careful_reading` 继续使用 `reading_structure`、旧任务无图形字段仍可导出。
+
+## 0.19.0
+- 新增图形化教学组件系统：在 slide JSON / `layout_plan` 中支持 `graphic_type` 与 `graphic_data`，兼容旧任务与旧导出链路。
+- `layout_planner_agent` 增加按课型与页面类型的规则分配：支持 `mindmap / flowchart / timeline / comparison_table / reading_structure / writing_framework / grammar_rule_chart / vocabulary_cards / task_steps / discussion_grid`，并自动补全基础图形数据。
+- 新增 `services/ppt_graphics_service.py`，实现教学图形组件渲染函数，全部基于 `python-pptx` 公共 API，不操作底层 OOXML。
+- `ppt_render_service.py` 接入图形组件渲染：优先读取 slide 或 layout_plan 的 graphic 配置，图形渲染失败自动回退普通布局，不阻断 PPTX 导出。
+- `slide_content_agent` prompt 增强：Reading/Writing/Grammar 关键页要求输出更具体结构化教学内容，降低空泛任务表达。
+- 编辑页预览增强图形提示：增加 graphic badge 与组件预览块（mindmap/flowchart/comparison/reading-structure/writing-framework/grammar-chart/vocabulary-cards 等）。
+- `ppt_quality_check_service` 增加图形检查项：`graphic_type_missing`、`graphic_data_empty`、`task_steps_too_generic`、`reading_structure_missing`、`writing_framework_missing`、`grammar_rule_chart_missing`。
+- 新增 `tests_round_019.py`，覆盖图形分配、图形渲染可调用性、task_steps 空泛识别、无效 graphic fallback、旧任务兼容导出等回归。
 
 ## 0.18.0
 - `services/ppt_render_service.py` 统一了 PPT 设计常量（尺寸、边距、字号层级、色彩变量、页脚安全区），并逐步替换关键布局中的 magic number，提升导出版式一致性与可维护性。

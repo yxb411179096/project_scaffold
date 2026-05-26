@@ -5,6 +5,7 @@
     <div class="section-kicker">Slide Editor</div>
     <h1 class="section-title mb-1">{{ task.course_title }}</h1>
     <div class="text-muted">{{ task.grade }} · {{ task.textbook }} · {{ task.unit }} · {{ task.lesson_type }}</div>
+    <div class="small text-muted mt-1">课件风格：<strong>{{ current_ppt_style_label }}</strong>（{{ current_ppt_style }}）</div>
   </div>
   <div class="d-flex flex-wrap gap-2">
     <form method="post" class="d-inline">
@@ -24,9 +25,9 @@
 </div>
 {% if has_slides and quality_report %}
 <div class="app-card p-3 mb-4 quality-export-summary">
-  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div>
-      <strong>导出前质量摘要：</strong>
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <div>
+        <strong>导出前质量摘要：</strong>
       {% if quality_report.status == '通过' %}
       <span class="quality-status quality-ok">通过</span>
       {% elif quality_report.status == '严重问题' %}
@@ -35,8 +36,8 @@
       <span class="quality-status quality-warning">有风险</span>
       {% endif %}
       <span class="small text-muted ms-2">问题 {{ quality_report.issue_count }}（严重 {{ quality_report.severe_count }}）</span>
-    </div>
-    <div class="small text-muted">本检查基于规则，不代表最终 PowerPoint 视觉效果。请以实际打开 PPTX 为准。</div>
+      </div>
+    <div class="small text-muted">风格：{{ quality_report.style_applied }}。本检查基于规则，不代表最终 PowerPoint 视觉效果。请以实际打开 PPTX 为准。</div>
   </div>
 </div>
 {% endif %}
@@ -200,7 +201,7 @@
         </div>
         <div class="meta-card">
           <div class="meta-label">Used Filters</div>
-          <div class="meta-value knowledge-query-text">{{ knowledge_context_view.used_filters | tojson }}</div>
+          <div class="meta-value knowledge-query-text">{{ knowledge_context_view.used_filters_display }}</div>
         </div>
       </div>
       {% if knowledge_context_view.failed %}
@@ -216,6 +217,9 @@
             <div>
               <h3 class="h6 mb-1">{{ item.title or '未命名资料' }}</h3>
               <div class="small text-muted">{{ item.doc_type or '—' }} · {{ item.grade or '—' }} / {{ item.textbook or '—' }} / {{ item.volume or '—' }} / {{ item.unit or '—' }} / {{ item.lesson_type or '—' }}</div>
+              {% if item.volume_mismatch or item.unit_mismatch %}
+              <div class="small text-warning-emphasis mt-1">与当前任务单元信息不一致（当前：{{ task.volume or '—' }} / {{ task.unit or '—' }}），已降权展示。</div>
+              {% endif %}
             </div>
             <div class="knowledge-score-stack">
               <span class="badge text-bg-light">Score {{ '%.3f'|format(item.score) if item.score is not none else '—' }}</span>
@@ -379,15 +383,18 @@
       </div>
       {% endif %}
       <details>
-        <summary>查看每页问题</summary>
+        <summary>展开质量问题详情</summary>
         <div class="mt-3">
           {% for item in quality_report.slides %}
-            {% if item.issues %}
+            {% if item.issue_details %}
             <div class="mb-2">
               <strong>Slide {{ item.slide_index }} · {{ item.slide_type }} · {{ item.title }}</strong>
               <ul class="mb-1">
-                {% for issue in item.issues %}
-                <li class="small text-muted">{{ issue }}</li>
+                {% for issue in item.issue_details %}
+                <li class="small text-muted">
+                  [{{ issue.severity|upper }}] {{ issue.code }}：{{ issue.message }}
+                  <div class="small text-secondary">建议：{{ issue.suggestion }}</div>
+                </li>
                 {% endfor %}
               </ul>
             </div>
@@ -403,13 +410,18 @@
       <h2 class="section-title mb-3">预览全部内容</h2>
       <div class="preview-grid">
         {% for slide in slides %}
-        <article class="preview-card preview-card-{{ slide.slide_type|replace('_', '-') }} {% if slide.slide_type == 'cover' %}cover-preview{% elif slide.slide_type == 'objectives' %}objectives-preview{% elif slide.slide_type in ['fast_reading','careful_reading','prediction','pre_reading'] %}reading-task-preview{% elif slide.slide_type in ['discussion','group_discussion'] %}discussion-preview{% elif slide.slide_type in ['writing_task','guided_writing','peer_review'] %}writing-preview{% elif slide.slide_type == 'summary' %}summary-preview{% elif slide.slide_type == 'lead_in' %}leadin-preview{% elif slide.slide_type == 'warm_up' %}warmup-preview{% elif slide.slide_type in ['pre_reading', 'prediction'] %}prereading-preview{% endif %}">
+        <article class="preview-card style-{{ current_ppt_style|replace('_','-') }} preview-card-{{ slide.slide_type|replace('_', '-') }} {% if slide.slide_type == 'cover' %}cover-preview{% elif slide.slide_type == 'objectives' %}objectives-preview{% elif slide.slide_type in ['fast_reading','careful_reading','prediction','pre_reading'] %}reading-task-preview{% elif slide.slide_type in ['discussion','group_discussion'] %}discussion-preview{% elif slide.slide_type in ['writing_task','guided_writing','peer_review'] %}writing-preview{% elif slide.slide_type == 'summary' %}summary-preview{% elif slide.slide_type == 'lead_in' %}leadin-preview{% elif slide.slide_type == 'warm_up' %}warmup-preview{% elif slide.slide_type in ['pre_reading', 'prediction'] %}prereading-preview{% endif %} {% if slide.graphic_type %}graphic-{{ slide.graphic_type|replace('_','-') }}{% endif %}">
           <div class="preview-card-header">
             <div>
-              <div class="small text-uppercase text-muted">{{ slide.slide_type }}</div>
-              <h3 class="h6 mb-0">{{ slide.slide_index }}. {{ slide.title }}</h3>
+            <div class="small text-uppercase text-muted">{{ slide.slide_type }}</div>
+            <h3 class="h6 mb-0">{{ slide.slide_index }}. {{ slide.title }}</h3>
+          </div>
+            <div class="d-flex flex-column gap-1 align-items-end">
+              <span class="badge text-bg-light">{{ slide.estimated_time }}</span>
+              {% if slide.graphic_type and slide.graphic_type != 'none' %}
+              <span class="badge text-bg-info-subtle">Graphic: {{ slide.graphic_type }}</span>
+              {% endif %}
             </div>
-            <span class="badge text-bg-light">{{ slide.estimated_time }}</span>
           </div>
           <ul class="preview-list">
             {% for item in slide.visible_content %}
@@ -433,6 +445,12 @@
           <div class="preview-image-box mt-2">
             <div class="preview-image-label">Image Placeholder</div>
             <div class="preview-image-text">{{ slide.image_suggestion }}</div>
+          </div>
+          {% endif %}
+          {% if slide.graphic_type and slide.graphic_type != 'none' %}
+          <div class="preview-graphic-box mt-2 {{ slide.graphic_type|replace('_','-') }}-preview">
+            <div class="preview-graphic-title">{{ slide.graphic_type }}</div>
+            <div class="preview-graphic-desc">{{ (slide.graphic_data.title if slide.graphic_data and slide.graphic_data.title else slide.layout_plan.graphic_data.title if slide.layout_plan and slide.layout_plan.graphic_data else 'Graphic component enabled') }}</div>
           </div>
           {% endif %}
           {% if slide.possible_answers %}

@@ -1,3 +1,4 @@
+import json
 import uuid
 from pathlib import Path
 
@@ -30,6 +31,13 @@ from services.knowledge_index_service import (
     index_knowledge_document,
     search_knowledge_semantic,
 )
+from services.knowledge_governance_service import (
+    create_unit_placeholders,
+    documents_need_reindex,
+    get_knowledge_coverage,
+    suggest_metadata,
+    update_document_metadata_quality,
+)
 from services.vector_store_service import VectorStoreError
 
 
@@ -52,7 +60,7 @@ DOC_TYPE_OPTIONS = [
 GRADE_OPTIONS = ["高一", "高二", "高三", "通用"]
 TEXTBOOK_OPTIONS = ["人教版", "外研版", "北师大版", "译林版", "通用"]
 VOLUME_OPTIONS = ["必修一", "必修二", "必修三", "选择性必修一", "选择性必修二", "选择性必修三", "通用"]
-UNIT_OPTIONS = ["Unit 1", "Unit 2", "Unit 3", "Unit 4", "通用"]
+UNIT_OPTIONS = ["Unit 1", "Unit 2", "Unit 3", "Unit 4", "Unit 5", "通用"]
 LESSON_TYPE_OPTIONS = ["Reading", "Grammar", "Writing", "Listening and Speaking", "Revision", "Vocabulary", "Other"]
 STATUS_OPTIONS = ["pending", "parsed", "failed"]
 
@@ -162,6 +170,13 @@ def knowledge_list():
         "status": str(request.args.get("status") or "").strip(),
     }
     docs = query_knowledge_documents(filters, limit=50)
+    need_reindex_ids = {d["id"] for d in documents_need_reindex()}
+    for doc in docs:
+        if int(doc.get("metadata_quality_score") or 0) == 0:
+            updated = update_document_metadata_quality(doc)
+            if updated:
+                doc.update(updated)
+        doc["need_reindex"] = doc["id"] in need_reindex_ids
     return render_template(
         "knowledge_list.html",
         docs=docs,
@@ -291,6 +306,7 @@ def knowledge_new():
         status="parsed",
     )
     doc = create_knowledge_document(payload)
+    update_document_metadata_quality(doc)
     flash("知识资料已保存并解析完成。", "success")
     return redirect(url_for("knowledge.knowledge_detail", doc_id=doc["id"]))
 
@@ -304,12 +320,19 @@ def knowledge_detail(doc_id):
     preview_text = full_text[:5000]
     is_truncated = len(full_text) > 5000
     chunks = list_knowledge_chunks_by_document(doc_id)
+    updated = update_document_metadata_quality(doc)
+    if updated:
+        doc = updated
+    metadata_suggestions = suggest_metadata(doc)
+    need_reindex = any(d["id"] == doc_id for d in documents_need_reindex())
     return render_template(
         "knowledge_detail.html",
         doc=doc,
         preview_text=preview_text,
         is_truncated=is_truncated,
         chunks=chunks,
+        metadata_suggestions=metadata_suggestions,
+        need_reindex=need_reindex,
     )
 
 
@@ -416,7 +439,8 @@ def knowledge_reparse(doc_id):
             }
         )
 
-    update_knowledge_document(doc_id, payload)
+    updated = update_knowledge_document(doc_id, payload)
+    update_document_metadata_quality(updated)
     if status == "parsed":
         flash("资料已重新解析。", "success")
     else:
@@ -476,3 +500,139 @@ def knowledge_text(doc_id):
         abort(404)
     content = _load_full_text(doc)
     return render_template("knowledge_text.html", doc=doc, content=content)
+
+
+@knowledge_bp.route("/knowledge/governance")
+def knowledge_governance():
+    docs = query_knowledge_documents({}, limit=1500)
+    only_incomplete = str(request.args.get("only_incomplete") or "") == "1"
+    only_unindexed = str(request.args.get("only_unindexed") or "") == "1"
+    only_whole_book = str(request.args.get("only_whole_book") or "") == "1"
+    only_suggest_split = str(request.args.get("only_suggest_split") or "") == "1"
+    textbook_filter = str(request.args.get("textbook") or "").strip()
+    volume_filter = str(request.args.get("volume") or "").strip()
+    unit_filter = str(request.args.get("unit") or "").strip()
+    doc_type_filter = str(request.args.get("doc_type") or "").strip()
+    need_reindex_ids = {d["id"] for d in documents_need_reindex()}
+    filtered = []
+    for doc in docs:
+        updated = update_document_metadata_quality(doc) or doc
+        updated["need_reindex"] = updated["id"] in need_reindex_ids
+        warnings_text = str(updated.get("metadata_warnings") or "")
+        try:
+            updated["warning_list"] = json.loads(warnings_text) if warnings_text else []
+        except Exception:
+            updated["warning_list"] = [warnings_text]
+        if only_incomplete and int(updated.get("metadata_quality_score") or 0) >= 80:
+            continue
+        if only_unindexed and updated.get("embedding_status") == "indexed":
+            continue
+        if only_whole_book and not updated.get("is_whole_book"):
+            continue
+        if only_suggest_split and not updated.get("is_whole_book"):
+            continue
+        if textbook_filter and updated.get("textbook") != textbook_filter:
+            continue
+        if volume_filter and updated.get("volume") != volume_filter:
+            continue
+        if unit_filter and updated.get("unit") != unit_filter:
+            continue
+        if doc_type_filter and updated.get("doc_type") != doc_type_filter:
+            continue
+        filtered.append(updated)
+    stats = {
+        "total": len(docs),
+        "indexed": sum(1 for d in docs if d.get("embedding_status") == "indexed"),
+        "unindexed": sum(1 for d in docs if d.get("embedding_status") != "indexed"),
+        "metadata_good": sum(1 for d in docs if int(d.get("metadata_quality_score") or 0) >= 80),
+        "metadata_risk": sum(1 for d in docs if int(d.get("metadata_quality_score") or 0) < 80),
+        "whole_book": sum(1 for d in docs if d.get("is_whole_book")),
+        "need_split": sum(1 for d in docs if d.get("is_whole_book")),
+    }
+    return render_template(
+        "knowledge_governance.html",
+        docs=filtered,
+        stats=stats,
+        textbook_options=TEXTBOOK_OPTIONS,
+        volume_options=VOLUME_OPTIONS,
+        unit_options=UNIT_OPTIONS,
+        doc_type_options=DOC_TYPE_OPTIONS,
+    )
+
+
+@knowledge_bp.route("/knowledge/coverage")
+def knowledge_coverage():
+    volume_filter = str(request.args.get("volume") or "").strip()
+    coverage = get_knowledge_coverage().get("textbooks", [])
+    if volume_filter:
+        coverage = [group for group in coverage if group.get("volume") == volume_filter]
+    return render_template(
+        "knowledge_coverage.html",
+        groups=coverage,
+        volume_options=VOLUME_OPTIONS,
+        volume_filter=volume_filter,
+    )
+
+
+@knowledge_bp.route("/knowledge/bulk-reindex", methods=["POST"])
+def knowledge_bulk_reindex():
+    reindex_unindexed = str(request.form.get("reindex_unindexed") or "").lower() in {"1", "true", "on", "yes"}
+    reindex_stale = str(request.form.get("reindex_stale") or "").lower() in {"1", "true", "on", "yes"}
+    limit = _optional_int(request.form.get("limit"), default=20, minimum=1, maximum=20)
+    docs = query_knowledge_documents({}, limit=2000)
+    stale_ids = {d["id"] for d in documents_need_reindex()}
+    targets = []
+    for doc in docs:
+        if len(targets) >= limit:
+            break
+        if reindex_unindexed and doc.get("embedding_status") != "indexed" and _load_full_text(doc).strip():
+            targets.append(doc)
+            continue
+        if reindex_stale and doc.get("id") in stale_ids:
+            targets.append(doc)
+    ok_count = 0
+    failed = []
+    for doc in targets:
+        result = index_knowledge_document(doc["id"])
+        if result.get("ok"):
+            ok_count += 1
+        else:
+            failed.append(result.get("message") or f"doc {doc['id']} failed")
+    if failed:
+        flash(f"批量重索引完成：成功 {ok_count}，失败 {len(failed)}。示例：{failed[0]}", "warning")
+    else:
+        flash(f"批量重索引完成：成功 {ok_count}。", "success")
+    return redirect(url_for("knowledge.knowledge_governance"))
+
+
+@knowledge_bp.route("/knowledge/<int:doc_id>/mark-metadata-reviewed", methods=["POST"])
+def knowledge_mark_metadata_reviewed(doc_id):
+    doc = get_knowledge_document(doc_id)
+    if not doc:
+        abort(404)
+    payload = dict(doc)
+    payload["metadata_reviewed"] = True
+    update_knowledge_document(doc_id, payload)
+    flash("已标记元信息已人工确认。", "success")
+    return redirect(url_for("knowledge.knowledge_detail", doc_id=doc_id))
+
+
+@knowledge_bp.route("/knowledge/<int:doc_id>/suggest-metadata", methods=["POST"])
+def knowledge_suggest_metadata(doc_id):
+    doc = get_knowledge_document(doc_id)
+    if not doc:
+        abort(404)
+    payload = dict(doc)
+    payload.update(suggest_metadata(doc))
+    update_knowledge_document(doc_id, payload)
+    flash("已生成元信息建议。", "success")
+    return redirect(url_for("knowledge.knowledge_detail", doc_id=doc_id))
+
+
+@knowledge_bp.route("/knowledge/create-unit-placeholders", methods=["POST"])
+def knowledge_create_placeholders():
+    textbook = str(request.form.get("textbook") or "人教版").strip()
+    volume = str(request.form.get("volume") or "必修二").strip()
+    created = create_unit_placeholders(textbook, volume)
+    flash(f"已创建 {created} 条 Unit 占位资料。", "success")
+    return redirect(url_for("knowledge.knowledge_coverage"))

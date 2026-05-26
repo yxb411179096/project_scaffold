@@ -47,6 +47,11 @@ from services.llm_service import (
 )
 from services.ppt_render_service import export_pptx
 from services.ppt_quality_check_service import check_ppt_quality
+from services.ppt_style_service import (
+    get_style_options,
+    recommend_style_key,
+    style_display_name,
+)
 from services.textbook_catalog_service import build_catalog_course_title, enrich_lesson_request_with_catalog
 
 ppt_bp = Blueprint("ppt", __name__)
@@ -68,6 +73,7 @@ VOLUME_OPTIONS = [
 MANUSCRIPT_LESSON_TYPE_OPTIONS = LESSON_TYPE_OPTIONS + ["Other"]
 STUDENT_LEVEL_OPTIONS = ["基础薄弱", "中等", "较好"]
 STYLE_OPTIONS = ["常规课", "公开课", "复习课"]
+PPT_STYLE_OPTIONS = get_style_options()
 MANUSCRIPT_GENERATION_MODES = {
     "text": "manuscript_text",
     "file": "manuscript_file",
@@ -105,6 +111,8 @@ OPTIONAL_SLIDE_FIELDS = (
     "useful_expressions",
     "possible_answers",
     "chinese_hint",
+    "graphic_type",
+    "graphic_data",
 )
 AI_MODEL_STATUS_LABELS = {
     "available": "可用",
@@ -183,7 +191,7 @@ def build_slide_payload(source):
         if source.get(field) is not None:
             if field in {"useful_expressions", "possible_answers"}:
                 payload[field] = parse_visible_content(source.get(field))
-            elif field == "layout_plan":
+            elif field in {"layout_plan", "graphic_data"}:
                 payload[field] = source.get(field) if isinstance(source.get(field), dict) else {}
             else:
                 payload[field] = parse_short_text(source.get(field))
@@ -319,6 +327,8 @@ def build_slide_from_form(form, current_slide):
         "useful_expressions": parse_visible_content(form.get("useful_expressions")) or current_slide.get("useful_expressions"),
         "possible_answers": parse_visible_content(form.get("possible_answers")) or current_slide.get("possible_answers"),
         "chinese_hint": form.get("chinese_hint") or current_slide.get("chinese_hint"),
+        "graphic_type": current_slide.get("graphic_type"),
+        "graphic_data": current_slide.get("graphic_data"),
     }
 
 
@@ -460,6 +470,7 @@ def build_agent_binding_payload(form, existing):
 
 
 def blank_manuscript_form():
+    recommended = recommend_style_key("Reading", "常规课")
     return {
         "course_title": "",
         "grade": "高一",
@@ -470,6 +481,7 @@ def blank_manuscript_form():
         "student_level": "中等",
         "duration": "45",
         "style": "常规课",
+        "ppt_style": recommended,
         "manuscript_generation_strategy": "ai_restructure",
         "manuscript_preserve_completion_mode": "preserve_exact_pages",
         "manuscript_preserve_polish_mode": "skip",
@@ -479,6 +491,13 @@ def blank_manuscript_form():
         "knowledge_top_k": "5",
         "knowledge_query": "",
     }
+
+
+def _resolve_ppt_style(form_or_task):
+    explicit = str(form_or_task.get("ppt_style") or "").strip().lower()
+    if explicit:
+        return explicit
+    return recommend_style_key(form_or_task.get("lesson_type"), form_or_task.get("style"))
 
 
 def _derive_catalog_title(form_or_task):
@@ -610,8 +629,17 @@ def _knowledge_context_view(task):
             "results": [],
         }
 
+    task_volume = str(task.get("volume") or "").strip()
+    task_unit = str(task.get("unit") or "").strip()
+    task_lesson_type = str(task.get("lesson_type") or "").strip()
     results = []
     for item in context.get("results") or []:
+        item_volume = item.get("volume") or item.get("document_volume") or ""
+        item_unit = item.get("unit") or item.get("document_unit") or ""
+        item_lesson_type = item.get("lesson_type") or item.get("document_lesson_type") or ""
+        volume_mismatch = bool(task_volume and item_volume and str(item_volume).strip() != task_volume)
+        unit_mismatch = bool(task_unit and item_unit and str(item_unit).strip() != task_unit)
+        lesson_type_mismatch = bool(task_lesson_type and item_lesson_type and str(item_lesson_type).strip() != task_lesson_type)
         results.append(
             {
                 "document_id": item.get("document_id"),
@@ -626,8 +654,35 @@ def _knowledge_context_view(task):
                 "chunk_text": item.get("chunk_text") or "",
                 "distance": item.get("distance"),
                 "score": item.get("score"),
+                "volume_mismatch": volume_mismatch,
+                "unit_mismatch": unit_mismatch,
+                "lesson_type_mismatch": lesson_type_mismatch,
+                "metadata_match_score": (
+                    (0 if volume_mismatch else 2 if task_volume else 0)
+                    + (0 if unit_mismatch else 3 if task_unit else 0)
+                    + (0 if lesson_type_mismatch else 1 if task_lesson_type else 0)
+                ),
             }
         )
+
+    results.sort(key=lambda x: (-int(x.get("metadata_match_score") or 0), float(x.get("distance") or 9999)))
+    used_filters = context.get("used_filters") or {}
+    def _fmt_filter(v):
+        if isinstance(v, list):
+            return str(v[0]) if v else ""
+        return str(v or "")
+
+    used_filters_display = " / ".join(
+        [
+            _fmt_filter(used_filters.get("grade") or task.get("grade") or "").strip(),
+            _fmt_filter(used_filters.get("textbook") or task.get("textbook") or "").strip(),
+            _fmt_filter(used_filters.get("volume") or task.get("volume") or "").strip(),
+            _fmt_filter(used_filters.get("unit") or task.get("unit") or "").strip(),
+            _fmt_filter(used_filters.get("lesson_type") or task.get("lesson_type") or "").strip(),
+        ]
+    ).strip(" /")
+    if not used_filters_display:
+        used_filters_display = "无筛选"
 
     return {
         "enabled": bool(context.get("enabled", True)),
@@ -638,7 +693,8 @@ def _knowledge_context_view(task):
         "relaxed": bool(context.get("relaxed")),
         "relaxed_level": normalize_relaxed_level(context.get("relaxed_level")),
         "relaxed_level_label": _relaxed_level_label(context.get("relaxed_level")),
-        "used_filters": context.get("used_filters") or {},
+        "used_filters": used_filters,
+        "used_filters_display": used_filters_display,
         "failed": bool(context.get("failed")),
         "error": context.get("error") or "",
         "results": results,
@@ -760,6 +816,7 @@ def new_task():
     if request.method == "POST":
         form = request.form.to_dict()
         form["course_title"] = _derive_catalog_title(form)
+        form["ppt_style"] = _resolve_ppt_style(form)
         use_knowledge_base = _form_knowledge_enabled(request.form)
         knowledge_top_k = _knowledge_top_k_from_form(request.form)
         knowledge_query = str(request.form.get("knowledge_query") or "").strip()
@@ -767,8 +824,8 @@ def new_task():
             cur = conn.execute(
                 """
                 INSERT INTO lesson_tasks
-                (course_title, grade, textbook, volume, unit, lesson_type, duration, student_level, style, extra_requirements, use_knowledge_base, knowledge_query, knowledge_top_k, knowledge_context_json, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (course_title, grade, textbook, volume, unit, lesson_type, duration, student_level, style, ppt_style, extra_requirements, use_knowledge_base, knowledge_query, knowledge_top_k, knowledge_context_json, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     form.get("course_title"),
@@ -780,6 +837,7 @@ def new_task():
                     int(form.get("duration") or 45),
                     form.get("student_level"),
                     form.get("style"),
+                    form.get("ppt_style") or "default",
                     form.get("extra_requirements"),
                     1 if use_knowledge_base else 0,
                     knowledge_query,
@@ -829,6 +887,8 @@ def new_task():
         volume_options=VOLUME_OPTIONS,
         student_level_options=STUDENT_LEVEL_OPTIONS,
         style_options=STYLE_OPTIONS,
+        ppt_style_options=PPT_STYLE_OPTIONS,
+        recommended_ppt_style=recommend_style_key("Reading", "常规课"),
     )
 
 
@@ -839,6 +899,7 @@ def from_manuscript():
     if request.method == "POST":
         form_data.update(request.form.to_dict())
         form_data["course_title"] = _derive_catalog_title(form_data)
+        form_data["ppt_style"] = _resolve_ppt_style(form_data)
         form_data["use_knowledge_base"] = _form_knowledge_enabled(request.form)
         form_data["knowledge_top_k"] = str(_knowledge_top_k_from_form(request.form))
         form_data["knowledge_query"] = str(request.form.get("knowledge_query") or "").strip()
@@ -856,6 +917,7 @@ def from_manuscript():
                 volume_options=VOLUME_OPTIONS,
                 student_level_options=STUDENT_LEVEL_OPTIONS,
                 style_options=STYLE_OPTIONS,
+                ppt_style_options=PPT_STYLE_OPTIONS,
                 manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
                 preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
                 preserve_polish_options=PRESERVE_POLISH_OPTIONS,
@@ -874,6 +936,7 @@ def from_manuscript():
                     volume_options=VOLUME_OPTIONS,
                     student_level_options=STUDENT_LEVEL_OPTIONS,
                     style_options=STYLE_OPTIONS,
+                    ppt_style_options=PPT_STYLE_OPTIONS,
                     manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
                     preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
                     preserve_polish_options=PRESERVE_POLISH_OPTIONS,
@@ -889,6 +952,7 @@ def from_manuscript():
                 volume_options=VOLUME_OPTIONS,
                 student_level_options=STUDENT_LEVEL_OPTIONS,
                 style_options=STYLE_OPTIONS,
+                ppt_style_options=PPT_STYLE_OPTIONS,
                 manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
                 preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
                 preserve_polish_options=PRESERVE_POLISH_OPTIONS,
@@ -929,8 +993,8 @@ def from_manuscript():
             cur = conn.execute(
                 """
                 INSERT INTO lesson_tasks
-                (course_title, grade, textbook, volume, unit, lesson_type, duration, student_level, style, extra_requirements, use_knowledge_base, knowledge_query, knowledge_top_k, knowledge_context_json, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (course_title, grade, textbook, volume, unit, lesson_type, duration, student_level, style, ppt_style, extra_requirements, use_knowledge_base, knowledge_query, knowledge_top_k, knowledge_context_json, generation_mode, manuscript_generation_strategy, manuscript_preserve_completion_mode, manuscript_preserve_polish_mode, manuscript_source_name, manuscript_raw_text, manuscript_summary, manuscript_analysis_json, source_word_count, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     form_data.get("course_title") or "文案转 PPT 课件",
@@ -942,6 +1006,7 @@ def from_manuscript():
                     int(form_data.get("duration") or 45),
                     form_data.get("student_level"),
                     form_data.get("style"),
+                    form_data.get("ppt_style") or "default",
                     form_data.get("extra_requirements"),
                     1 if form_data["use_knowledge_base"] else 0,
                     form_data["knowledge_query"],
@@ -996,6 +1061,7 @@ def from_manuscript():
                 volume_options=VOLUME_OPTIONS,
                 student_level_options=STUDENT_LEVEL_OPTIONS,
                 style_options=STYLE_OPTIONS,
+                ppt_style_options=PPT_STYLE_OPTIONS,
                 manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
                 preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
                 preserve_polish_options=PRESERVE_POLISH_OPTIONS,
@@ -1014,6 +1080,7 @@ def from_manuscript():
         volume_options=VOLUME_OPTIONS,
         student_level_options=STUDENT_LEVEL_OPTIONS,
         style_options=STYLE_OPTIONS,
+        ppt_style_options=PPT_STYLE_OPTIONS,
         manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
         preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
         preserve_polish_options=PRESERVE_POLISH_OPTIONS,
@@ -1114,6 +1181,8 @@ def edit_task(task_id):
     return render_template(
         "edit_task.html",
         task=task,
+        current_ppt_style=task.get("ppt_style") or "default",
+        current_ppt_style_label=style_display_name(task.get("ppt_style") or "default"),
         slides=slides,
         has_slides=bool(slides),
         is_manuscript_task=is_manuscript_task(task),

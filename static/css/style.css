@@ -186,6 +186,32 @@ body {
   padding: 1rem;
 }
 
+.preview-card.style-default {
+  border: 1px solid rgba(21, 40, 72, 0.12);
+}
+
+.preview-card.style-open-class {
+  border: 1px solid rgba(120, 80, 39, 0.28);
+  box-shadow: 0 10px 24px rgba(57, 43, 25, 0.1);
+}
+
+.preview-card.style-fresh-classroom {
+  background: linear-gradient(180deg, #f8fffd 0%, #f1fbf8 100%);
+  border: 1px solid rgba(80, 136, 123, 0.28);
+}
+
+.preview-card.style-reading-focus {
+  border: 1px solid rgba(46, 124, 164, 0.28);
+}
+
+.preview-card.style-writing-focus {
+  border: 1px solid rgba(125, 102, 190, 0.28);
+}
+
+.preview-card.style-grammar-focus {
+  border: 1px solid rgba(155, 107, 67, 0.28);
+}
+
 .cover-preview {
   background: linear-gradient(160deg, #f9fbff 0%, #eef5fb 100%);
 }
@@ -223,6 +249,41 @@ body {
   background: linear-gradient(180deg, #f8f8ff 0%, #eff0ff 100%);
   border-left: 4px solid #6d74c9;
 }
+
+.preview-graphic-box {
+  border: 1px dashed var(--app-line);
+  border-radius: 12px;
+  padding: 0.55rem 0.7rem;
+  background: #f9fbfd;
+}
+
+.preview-graphic-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--app-primary);
+}
+
+.preview-graphic-desc {
+  font-size: 0.82rem;
+  color: var(--app-muted);
+}
+
+.graphic-mindmap { border-top: 3px solid #6d74c9; }
+.graphic-flowchart { border-top: 3px solid #3273a7; }
+.graphic-comparison-table { border-top: 3px solid #2f8f5b; }
+.graphic-reading-structure { border-top: 3px solid #1d6f97; }
+.graphic-writing-framework { border-top: 3px solid #4f8f3a; }
+.graphic-grammar-rule-chart { border-top: 3px solid #d07a2d; }
+.graphic-vocabulary-cards { border-top: 3px solid #8b6ec7; }
+
+.mindmap-preview { background: #f3f4ff; }
+.flowchart-preview { background: #eef7ff; }
+.comparison-table-preview { background: #eff9f3; }
+.reading-structure-preview { background: #edf8fb; }
+.writing-framework-preview { background: #eefaf1; }
+.grammar-rule-chart-preview { background: #fff5ea; }
+.vocabulary-cards-preview { background: #f4efff; }
 
 .quality-export-summary {
   border-left: 4px solid var(--app-line);

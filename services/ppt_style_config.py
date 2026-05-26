@@ -1,49 +1,35 @@
-"""Built-in PPT style profiles for exported classroom decks."""
+"""Compatibility shim for renderer style profile.
 
-PPT_STYLE_PROFILES = {
-    "default": {
-        "name": "default",
-        "background": (246, 248, 252),
-        "surface": (255, 255, 255),
-        "primary": (24, 76, 121),
-        "secondary": (53, 95, 136),
-        "accent": (235, 165, 82),
-        "text": (32, 43, 57),
-        "muted": (96, 112, 128),
-        "soft": (231, 240, 248),
-    },
-    "open_class": {
-        "name": "open_class",
-        "background": (248, 246, 241),
-        "surface": (255, 255, 255),
-        "primary": (18, 54, 92),
-        "secondary": (120, 80, 39),
-        "accent": (214, 156, 81),
-        "text": (33, 34, 36),
-        "muted": (103, 95, 87),
-        "soft": (241, 233, 220),
-    },
-    "review": {
-        "name": "review",
-        "background": (243, 248, 244),
-        "surface": (255, 255, 255),
-        "primary": (49, 101, 74),
-        "secondary": (85, 132, 108),
-        "accent": (143, 179, 101),
-        "text": (33, 47, 40),
-        "muted": (98, 118, 107),
-        "soft": (228, 239, 231),
-    },
-}
+Canonical preset definitions live in services/ppt_style_service.py.
+"""
 
-
-STYLE_ALIAS = {
-    "常规课": "default",
-    "公开课": "open_class",
-    "复习课": "review",
-}
+from services.ppt_style_service import get_style_preset, recommend_style_key
 
 
 def get_ppt_style_profile(task):
-    style_name = STYLE_ALIAS.get(task.get("style"), "default")
-    return PPT_STYLE_PROFILES.get(style_name, PPT_STYLE_PROFILES["default"])
+    style_key = str(task.get("ppt_style") or "").strip().lower()
+    if not style_key:
+        style_key = recommend_style_key(task.get("lesson_type"), task.get("style"))
+    preset = get_style_preset(style_key=style_key, lesson_type=task.get("lesson_type"), teaching_style=task.get("style"))
+    return {
+        "name": preset["style_key"],
+        "display_name": preset["display_name"],
+        "background": preset["background_color"],
+        "surface": preset["card_background"],
+        "primary": preset["primary_color"],
+        "secondary": preset["secondary_color"],
+        "accent": preset["accent_color"],
+        "text": preset["text_color"],
+        "muted": preset["muted_text_color"],
+        "soft": tuple(min(255, int((c + 255) / 2)) for c in preset["border_color"]),
+        "border": preset["border_color"],
+        "title_font_size": preset["title_font_size"],
+        "subtitle_font_size": preset["subtitle_font_size"],
+        "body_font_size": preset["body_font_size"],
+        "small_font_size": preset["small_font_size"],
+        "card_radius": preset["card_radius"],
+        "card_shadow": bool(preset.get("card_shadow")),
+        "footer_style": preset["footer_style"],
+        "title_align": preset["title_align"],
+        "background_pattern": preset["background_pattern"],
+    }

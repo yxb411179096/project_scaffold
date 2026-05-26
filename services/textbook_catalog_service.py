@@ -46,10 +46,19 @@ RENJIAO_REQUIRED_2 = {
     },
 }
 
+RENJIAO_REQUIRED_3 = {
+    "Unit 1": {"theme": "Festivals and Celebrations"},
+    "Unit 2": {"theme": "Morals and Virtues"},
+    "Unit 3": {"theme": "Diverse Cultures"},
+    "Unit 4": {"theme": "Space Exploration"},
+    "Unit 5": {"theme": "The Value of Money"},
+}
+
 CATALOG = {
     "人教版": {
         "必修一": RENJIAO_REQUIRED_1,
         "必修二": RENJIAO_REQUIRED_2,
+        "必修三": RENJIAO_REQUIRED_3,
     }
 }
 

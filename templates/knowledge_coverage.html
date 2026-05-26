@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between flex-wrap gap-2">
+      <div>
+        <h1 class="h4 mb-1">教材资料覆盖情况</h1>
+        <p class="text-muted mb-0">按教材 / 册别 / Unit 查看 Reading / Writing / Vocabulary / 教案覆盖。</p>
+      </div>
+      <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_list') }}">返回知识库</a>
+    </div>
+    <form method="get" class="row g-2 mt-2">
+      <div class="col-md-3">
+        <select class="form-select" name="volume">
+          <option value="">全部册别</option>
+          {% for option in volume_options %}
+          <option value="{{ option }}" {% if volume_filter == option %}selected{% endif %}>{{ option }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6 d-flex gap-2">
+        <button class="btn btn-outline-primary">筛选</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_coverage') }}">重置</a>
+      </div>
+    </form>
+  </div>
+</section>
+
+{% for group in groups %}
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h2 class="h5 mb-0">{{ group.textbook }} · {{ group.volume }}</h2>
+      <form method="post" action="{{ url_for('knowledge.knowledge_create_placeholders') }}" class="d-flex gap-2">
+        <input type="hidden" name="textbook" value="{{ group.textbook }}">
+        <input type="hidden" name="volume" value="{{ group.volume }}">
+        <button class="btn btn-sm btn-outline-primary">创建该册 Unit 占位资料</button>
+      </form>
+    </div>
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead><tr><th>Unit</th><th>Theme</th><th>教材</th><th>Reading</th><th>Vocabulary</th><th>教案</th><th>Writing</th><th>已索引</th><th>缺失建议</th></tr></thead>
+        <tbody>
+          {% for unit in group.units %}
+          <tr>
+            <td>{{ unit.unit }}</td>
+            <td>{{ unit.theme or "—" }}</td>
+            <td>{% if unit.has_textbook %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-secondary">无</span>{% endif %}</td>
+            <td>{% if unit.has_reading %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-warning">无</span>{% endif %}</td>
+            <td>{% if unit.has_vocabulary %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-warning">无</span>{% endif %}</td>
+            <td>{% if unit.has_lesson_plan %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-warning">无</span>{% endif %}</td>
+            <td>{% if unit.has_writing %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-warning">无</span>{% endif %}</td>
+            <td>{{ unit.indexed_count }}</td>
+            <td>{{ unit.missing|join("、") if unit.missing else "覆盖完整" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+{% endfor %}
+{% endblock %}

@@ -17,6 +17,8 @@ from pptx.util import Inches, Pt
 from config import EXPORT_PPTX_DIR
 from services.agents.layout_planner_agent import plan_layout_for_slide
 from services.export_utils import safe_course_filename
+from services.layout_template_service import get_template_for_slide
+from services.ppt_graphics_service import GRAPHIC_RENDERERS
 from services.ppt_style_config import get_ppt_style_profile
 
 
@@ -47,6 +49,8 @@ COLOR_MUTED = (102, 112, 133)
 COLOR_CARD_BG = (248, 251, 253)
 COLOR_BORDER = (215, 225, 234)
 COLOR_WARNING = (215, 94, 46)
+GRAPHIC_AREA = (0.95, 1.85, 11.2, 4.25)
+MAX_MAIN_BLOCKS = 3
 
 
 def _rgb(color_tuple):
@@ -322,6 +326,203 @@ def _add_teacher_hint(slide, slide_data, style):
             size=9,
             color=style["muted"],
         )
+
+
+def _resolve_graphic_type(slide_data):
+    direct = str(slide_data.get("graphic_type") or "").strip()
+    if direct:
+        return direct
+    layout_graphic = str((_get_layout_plan(slide_data).get("graphic_type") or "")).strip()
+    return layout_graphic or "none"
+
+
+def _resolve_graphic_data(slide_data):
+    if isinstance(slide_data.get("graphic_data"), dict):
+        return slide_data.get("graphic_data")
+    layout_data = _get_layout_plan(slide_data).get("graphic_data")
+    return layout_data if isinstance(layout_data, dict) else {}
+
+
+def has_active_graphic(slide_data):
+    graphic_type = _resolve_graphic_type(slide_data)
+    graphic_data = _resolve_graphic_data(slide_data)
+    if not graphic_type or graphic_type == "none":
+        return False
+    return isinstance(graphic_data, dict) and bool(graphic_data)
+
+
+def _graphic_density(slide_data):
+    data = _resolve_graphic_data(slide_data)
+    if not isinstance(data, dict):
+        return 0, 0
+    node_count = 0
+    text_len = 0
+    for key in ("nodes", "cards", "steps", "branches", "events", "rows", "examples", "useful_expressions"):
+        value = data.get(key)
+        if isinstance(value, list):
+            node_count += len(value)
+            for item in value:
+                if isinstance(item, dict):
+                    text_len += len(" ".join(str(v) for v in item.values()))
+                else:
+                    text_len += len(str(item))
+    return node_count, text_len
+
+
+def safe_compact_layout(slide, slide_data, task, prs, style):
+    _set_background(slide, prs, style)
+    _add_header_band(slide, slide_data, style)
+    items = normalize_bullets(slide_data.get("visible_content", []), max_items=MAX_MAIN_BLOCKS, max_chars_each=56)
+    if not items:
+        items = ["Focus on the key task.", "Use one clear piece of evidence.", "Share your answer briefly."]
+    _add_panel(slide, Inches(1.1), Inches(1.95), Inches(10.9), Inches(3.95), style["surface"], line_color=style["soft"])
+    _add_bullets(slide, items, Inches(1.45), Inches(2.35), Inches(10.2), Inches(2.35), style, size=12)
+    key_sentence = truncate_text(str(slide_data.get("key_sentence") or "").strip(), 110)
+    if key_sentence:
+        _add_panel(slide, Inches(1.45), Inches(4.95), Inches(10.2), Inches(0.6), style["soft"], line_color=style["soft"])
+        _add_textbox(slide, Inches(1.65), Inches(5.13), Inches(9.8), Inches(0.2), f"Key sentence: {key_sentence}", size=11, color=style["primary"], bold=True)
+    _add_textbox(slide, Inches(8.6), Inches(6.12), Inches(3.6), Inches(0.2), "More details in teacher script.", size=9, color=style["muted"], align=PP_ALIGN.RIGHT)
+
+
+def _render_graphic_only_slide(slide, slide_data, task, prs, style):
+    _set_background(slide, prs, style)
+    _add_header_band(slide, slide_data, style)
+    key_sentence = truncate_text(str(slide_data.get("key_sentence") or "").strip(), 180)
+    if key_sentence:
+        _add_panel(slide, Inches(0.95), Inches(1.38), Inches(11.1), Inches(0.32), style["soft"], line_color=style["soft"])
+        _add_textbox(
+            slide,
+            Inches(1.12),
+            Inches(1.45),
+            Inches(10.7),
+            Inches(0.18),
+            text=f"Key Sentence: {key_sentence}",
+            size=10,
+            color=style["primary"],
+            bold=True,
+        )
+
+    graphic_type = _resolve_graphic_type(slide_data)
+    graphic_data = _resolve_graphic_data(slide_data)
+    graphic_renderer = GRAPHIC_RENDERERS.get(graphic_type)
+    if not graphic_renderer:
+        raise ValueError(f"Unsupported graphic_type: {graphic_type}")
+    graphic_renderer(slide, prs, graphic_data, area=GRAPHIC_AREA, style=style)
+
+    # Keep image suggestion as a small hint when a full graphic is active.
+    image_hint = truncate_text(str(slide_data.get("image_suggestion") or "").strip(), 120)
+    if image_hint:
+        _add_textbox(
+            slide,
+            Inches(8.0),
+            Inches(6.12),
+            Inches(4.2),
+            Inches(0.2),
+            text=f"Image suggestion: {image_hint}",
+            size=8,
+            color=style["muted"],
+            align=PP_ALIGN.RIGHT,
+        )
+
+
+def render_numbered_cards(slide, slide_data, task, prs, style, template):
+    objectives_layout(slide, slide_data, task, prs, style)
+
+
+def render_question_cards(slide, slide_data, task, prs, style, template):
+    leadin_question_layout(slide, slide_data, task, prs, style)
+
+
+def render_three_step_flow(slide, slide_data, task, prs, style, template):
+    prediction_flow_layout(slide, slide_data, task, prs, style)
+
+
+def render_task_focus_card(slide, slide_data, task, prs, style, template):
+    reading_task_layout(slide, slide_data, task, prs, style)
+
+
+def render_question_evidence_columns(slide, slide_data, task, prs, style, template):
+    reading_task_layout(slide, slide_data, task, prs, style)
+
+
+def render_vocabulary_cards_template(slide, slide_data, task, prs, style, template):
+    vocabulary_card_layout(slide, slide_data, task, prs, style)
+
+
+def render_pattern_practice_blocks(slide, slide_data, task, prs, style, template):
+    sentence_analysis_layout(slide, slide_data, task, prs, style)
+
+
+def render_discussion_prompt_panel(slide, slide_data, task, prs, style, template):
+    discussion_layout(slide, slide_data, task, prs, style)
+
+
+def render_three_takeaway_cards(slide, slide_data, task, prs, style, template):
+    mindmap_layout(slide, slide_data, task, prs, style)
+
+
+def render_homework_levels(slide, slide_data, task, prs, style, template):
+    homework_layout(slide, slide_data, task, prs, style)
+
+
+def render_board_structure(slide, slide_data, task, prs, style, template):
+    blackboard_layout(slide, slide_data, task, prs, style)
+
+
+TEMPLATE_VARIANT_RENDERERS = {
+    "numbered_cards": render_numbered_cards,
+    "question_cards": render_question_cards,
+    "three_step_flow": render_three_step_flow,
+    "task_focus_card": render_task_focus_card,
+    "question_evidence_columns": render_question_evidence_columns,
+    "vocabulary_cards": render_vocabulary_cards_template,
+    "pattern_practice_blocks": render_pattern_practice_blocks,
+    "discussion_prompt_panel": render_discussion_prompt_panel,
+    "three_takeaway_cards": render_three_takeaway_cards,
+    "homework_levels": render_homework_levels,
+    "board_structure": render_board_structure,
+}
+
+
+def render_by_layout_template(slide, slide_data, task, template, prs, style):
+    visual_variant = str(template.get("visual_variant") or "").strip()
+    variant_renderer = TEMPLATE_VARIANT_RENDERERS.get(visual_variant)
+    if variant_renderer:
+        variant_renderer(slide, slide_data, task, prs, style, template)
+        return visual_variant or "variant"
+
+    preferred_layout = str(template.get("preferred_layout") or "").strip()
+    preferred_renderer = LAYOUT_RENDERERS.get(preferred_layout)
+    if preferred_renderer:
+        preferred_renderer(slide, slide_data, task, prs, style)
+        return preferred_layout
+
+    _set_background(slide, prs, style)
+    _add_header_band(slide, slide_data, style)
+    max_blocks = int(template.get("max_blocks") or 3)
+    max_items = int(template.get("max_items_per_block") or 2)
+    body_size = max(int(template.get("body_font_size") or 18), int(template.get("min_font_size") or 14))
+    items = normalize_bullets(slide_data.get("visible_content", []), max_items=max_blocks * max_items, max_chars_each=72)
+    if not items:
+        items = ["Focus on one key classroom objective."]
+    blocks = [items[i:i + max_items] for i in range(0, min(len(items), max_blocks * max_items), max_items)]
+    panel_h = Inches(4.25 / max(max_blocks, 1))
+    for idx, block in enumerate(blocks[:max_blocks]):
+        top = Inches(1.85) + idx * panel_h
+        _add_panel(slide, Inches(1.05), top, Inches(10.9), panel_h - Inches(0.08), style["surface"], line_color=style["soft"])
+        _add_bullets(
+            slide,
+            block,
+            Inches(1.35),
+            top + Inches(0.18),
+            Inches(10.2),
+            panel_h - Inches(0.3),
+            style,
+            size=body_size,
+        )
+    if len(items) > max_blocks * max_items:
+        _add_textbox(slide, Inches(8.5), Inches(6.12), Inches(3.7), Inches(0.2), "More details in teacher script.", size=11, color=style["muted"], align=PP_ALIGN.RIGHT)
+    return "plain_fallback"
 
 
 def _add_chinese_hint(slide, slide_data, style):
@@ -1024,7 +1225,7 @@ def export_pptx(task, slides):
     prs = Presentation()
     prs.slide_width = Inches(SLIDE_SIZE[0])
     prs.slide_height = Inches(SLIDE_SIZE[1])
-    style = get_ppt_style_profile(task)
+    default_style = get_ppt_style_profile(task)
 
     # To maximize compatibility with PowerPoint, Keynote, and WPS,
     # this export intentionally does not write speaker notes / notes slides.
@@ -1033,10 +1234,38 @@ def export_pptx(task, slides):
         render_data = dict(slide_data)
         if not render_data.get("layout_plan"):
             render_data["layout_plan"] = plan_layout_for_slide(render_data, task)
+        slide_task = dict(task)
+        if render_data.get("ppt_style"):
+            slide_task["ppt_style"] = render_data.get("ppt_style")
+        style = get_ppt_style_profile(slide_task) if slide_task.get("ppt_style") else default_style
         slide = prs.slides.add_slide(prs.slide_layouts[6])
+        layout_template = (_get_layout_plan(render_data).get("layout_template") or
+                           get_template_for_slide(render_data.get("slide_type")))
         layout_type = (_get_layout_plan(render_data).get("layout_type") or "reading_task_layout")
         renderer = LAYOUT_RENDERERS.get(layout_type, reading_task_layout)
-        renderer(slide, render_data, task, prs, style)
+        graphic_active = has_active_graphic(render_data)
+        node_count, text_len = _graphic_density(render_data)
+        dense_graphic = node_count > 4 or text_len > 280
+        dense_slide = len(render_data.get("visible_content", []) or []) > 4
+        compact_risky_type = str(render_data.get("slide_type") or "") in {"lead_in", "group_discussion", "language_points"}
+        force_compact = dense_graphic or (compact_risky_type and dense_slide)
+        if layout_template:
+            rendered_variant = render_by_layout_template(slide, render_data, task, layout_template, prs, style)
+            render_data.setdefault("layout_plan", {})["rendered_visual_variant"] = rendered_variant
+        elif graphic_active:
+            try:
+                if force_compact:
+                    safe_compact_layout(slide, render_data, task, prs, style)
+                else:
+                    _render_graphic_only_slide(slide, render_data, task, prs, style)
+            except Exception:
+                # Full fallback: if graphic pipeline fails, render legacy layout only.
+                safe_compact_layout(slide, render_data, task, prs, style)
+        else:
+            if force_compact:
+                safe_compact_layout(slide, render_data, task, prs, style)
+            else:
+                renderer(slide, render_data, task, prs, style)
         _add_chinese_hint(slide, render_data, style)
         _add_footer(slide, render_data.get("slide_index", 1), task, style)
 

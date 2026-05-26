@@ -6,6 +6,9 @@ and teaching intent while keeping the same layout_plan schema.
 """
 
 
+from services.layout_template_service import get_template_for_slide
+
+
 LAYOUT_TYPE_MAP = {
     "cover": "cover_layout",
     "objectives": "objectives_layout",
@@ -42,6 +45,46 @@ LAYOUT_TYPE_MAP = {
     "consolidation": "mindmap_layout",
     "homework": "homework_layout",
     "blackboard_design": "blackboard_layout",
+}
+
+GRAPHIC_NONE = "none"
+
+
+GRAPHIC_TYPE_BY_LESSON = {
+    "reading": {
+        "lead_in": "none",
+        "prediction": "none",
+        "pre_reading": "none",
+        "fast_reading": "none",
+        "careful_reading": "reading_structure",
+        "vocabulary_focus": "vocabulary_cards",
+        "language_points": "none",
+        "group_discussion": "none",
+        "summary": "mindmap",
+        "homework": "none",
+    },
+    "writing": {
+        "writing_task": "task_steps",
+        "structure_analysis": "writing_framework",
+        "useful_expressions": "vocabulary_cards",
+        "guided_writing": "writing_framework",
+        "peer_review": "comparison_table",
+        "summary": "mindmap",
+    },
+    "grammar": {
+        "observe_discover": "comparison_table",
+        "grammar_rule": "grammar_rule_chart",
+        "guided_practice": "task_steps",
+        "controlled_practice": "task_steps",
+        "communicative_practice": "discussion_grid",
+        "summary": "mindmap",
+    },
+    "revision": {
+        "key_vocabulary_review": "vocabulary_cards",
+        "key_grammar_review": "grammar_rule_chart",
+        "error_analysis": "comparison_table",
+        "consolidation": "mindmap",
+    },
 }
 
 
@@ -310,6 +353,109 @@ def _teacher_hint_position(layout_type):
     return positions.get(layout_type, "footer")
 
 
+def _detect_lesson_key(lesson_request):
+    raw = str(lesson_request.get("lesson_type") or "").strip().lower()
+    if "reading" in raw:
+        return "reading"
+    if "writing" in raw:
+        return "writing"
+    if "grammar" in raw:
+        return "grammar"
+    if "revision" in raw:
+        return "revision"
+    return "reading"
+
+
+def _pick_graphic_type(slide, lesson_request):
+    slide_type = str(slide.get("slide_type") or "").strip()
+    lesson_key = _detect_lesson_key(lesson_request)
+    lesson_map = GRAPHIC_TYPE_BY_LESSON.get(lesson_key, {})
+    return lesson_map.get(slide_type, GRAPHIC_NONE)
+
+
+def _build_graphic_data(graphic_type, slide, lesson_request):
+    items = _trim_items(slide.get("visible_content", []), limit=6)
+    title = str(slide.get("title") or "").strip() or "Graphic"
+    topic = lesson_request.get("topic") or lesson_request.get("course_title") or "Lesson Topic"
+    useful = _trim_items(slide.get("useful_expressions", []), limit=4)
+    key_sentence = str(slide.get("key_sentence") or "").strip()
+    possible_answers = _trim_items(slide.get("possible_answers", []), limit=4)
+
+    if graphic_type == "mindmap":
+        center = key_sentence or (items[0] if items else topic)
+        branches = ["Topic", "Skill", "Language"]
+        return {"title": title, "center": center, "branches": branches}
+    if graphic_type == "flowchart":
+        steps = items[:4] or ["Before reading", "Read", "Find clues", "Share"]
+        return {"title": title, "steps": steps}
+    if graphic_type == "timeline":
+        events = items[:4] or ["Start", "Development", "Change", "Result"]
+        return {"title": title, "events": events}
+    if graphic_type == "comparison_table":
+        left = items[:2] or ["Point A", "Example A"]
+        right = possible_answers[:2] or items[2:4] or ["Point B", "Example B"]
+        return {"title": title, "headers": ["A", "B"], "rows": [{"left": left[0], "right": right[0]}, {"left": left[-1], "right": right[-1]}]}
+    if graphic_type == "reading_structure":
+        nodes = [
+            {"label": "Problem", "content": items[0] if len(items) > 0 else "Identify the problem in the text."},
+            {"label": "Change", "content": items[1] if len(items) > 1 else "Explain what changed after the Internet support."},
+            {"label": "Result", "content": items[2] if len(items) > 2 else "Summarize the result or influence."},
+        ]
+        return {"title": "Reading Structure", "nodes": nodes}
+    if graphic_type == "writing_framework":
+        return {
+            "title": "Writing Framework",
+            "sections": {
+                "Opening": items[0] if len(items) > 0 else "State the purpose clearly.",
+                "Body": items[1] if len(items) > 1 else "Give two supporting ideas.",
+                "Ending": items[2] if len(items) > 2 else "Close with suggestion or expectation.",
+            },
+            "useful_expressions": useful or ["I am writing to...", "It is suggested that...", "I hope..."],
+            "checklist": items[3:5] or ["Clear purpose", "Logical structure", "Accurate language"],
+        }
+    if graphic_type == "grammar_rule_chart":
+        return {
+            "title": "Grammar Rule Chart",
+            "examples": items[:1] or ["Example sentence 1"],
+            "rule": items[2] if len(items) > 2 else "Summarize the grammar rule in one line.",
+            "practice": items[3] if len(items) > 3 else "Apply the rule in one sentence.",
+            "common_mistakes": possible_answers[:1] or ["Check subject-verb agreement."],
+        }
+    if graphic_type == "vocabulary_cards":
+        cards = []
+        source = useful or items
+        if not source:
+            source = ["online community", "social network", "digital life"]
+        for index, entry in enumerate(source[:3], start=1):
+            token = str(entry or "").strip()
+            word = token if len(token.split()) <= 4 and len(token) <= 30 else ["online community", "social network", "digital life"][index - 1]
+            cards.append(
+                {
+                    "word": word,
+                    "meaning": f"Key idea: {word}",
+                    "example": f"{word} changes how people connect.",
+                }
+            )
+        return {"title": "Vocabulary Cards", "cards": cards}
+    if graphic_type == "task_steps":
+        steps = items[:4] or [
+            "Read the task carefully.",
+            "Find key information or language clues.",
+            "Work with partner/group and prepare an answer.",
+            "Share your answer with evidence.",
+        ]
+        return {"title": "Task Steps", "steps": steps}
+    if graphic_type == "discussion_grid":
+        return {
+            "title": "Discussion Grid",
+            "topic": items[0] if items else f"Discuss: {topic}",
+            "useful_expressions": useful or ["I agree that...", "In my opinion...", "The text shows..."],
+            "group_roles": ["Speaker", "Recorder", "Evidence finder"],
+            "share_task": possible_answers[0] if possible_answers else (items[1] if len(items) > 1 else "Share one group conclusion with evidence."),
+        }
+    return {}
+
+
 def plan_layout_for_slide(slide, lesson_request):
     """Generate a layout plan for one slide."""
 
@@ -330,9 +476,18 @@ def plan_layout_for_slide(slide, lesson_request):
             layout_type = "image_question_layout"
         elif slide.get("possible_answers"):
             layout_type = "comparison_layout"
+    graphic_type = slide.get("graphic_type") or _pick_graphic_type(slide, lesson_request)
+    if not graphic_type:
+        graphic_type = GRAPHIC_NONE
+    graphic_data = slide.get("graphic_data") if isinstance(slide.get("graphic_data"), dict) else _build_graphic_data(graphic_type, slide, lesson_request)
     visual_suggestion = _visual_suggestion(layout_type, lesson_request)
     if slide.get("image_suggestion"):
         visual_suggestion = f"{visual_suggestion} Image suggestion: {slide.get('image_suggestion')}."
+    if graphic_type and graphic_type != GRAPHIC_NONE:
+        visual_suggestion = f"{visual_suggestion} Graphic component: {graphic_type}."
+    template = get_template_for_slide(slide_type)
+    if template:
+        template["name"] = template.get("template_name")
     return {
         "layout_type": layout_type,
         "content_blocks": _build_content_blocks(layout_type, slide, lesson_request),
@@ -340,6 +495,9 @@ def plan_layout_for_slide(slide, lesson_request):
         "emphasis_level": _emphasis_level(layout_type),
         "need_image_placeholder": layout_type == "image_question_layout" or bool(slide.get("image_suggestion")),
         "teacher_hint_position": _teacher_hint_position(layout_type),
+        "graphic_type": graphic_type,
+        "graphic_data": graphic_data,
+        "layout_template": template,
     }
 
 
@@ -350,5 +508,9 @@ def plan_layouts(slides, lesson_request):
     for slide in slides:
         planned = dict(slide)
         planned["layout_plan"] = plan_layout_for_slide(planned, lesson_request)
+        if not planned.get("graphic_type"):
+            planned["graphic_type"] = planned["layout_plan"].get("graphic_type", GRAPHIC_NONE)
+        if not isinstance(planned.get("graphic_data"), dict):
+            planned["graphic_data"] = planned["layout_plan"].get("graphic_data", {})
         planned_slides.append(planned)
     return planned_slides

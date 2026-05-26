@@ -796,8 +796,11 @@ Requirements:
 - Do not output generic placeholders like "Complete the classroom task.".
 - Do not output empty "Step 1 / Step 2 / Step 3" style placeholders.
 - Reading lessons must include concrete reading tasks (e.g., fast reading or careful reading actions).
+- For Reading careful_reading slides, include concrete structure cues such as Problem/Solution/Result, Main idea/Details/Conclusion, or Cause/Effect.
 - Writing lessons must include structure, useful expressions, and checklist-oriented task cues.
+- For Writing structure/guided slides, include clear Opening/Body/Ending framework cues plus checklist hints.
 - Grammar lessons must include examples, rule focus, and practice actions.
+- For Grammar rule slides, include examples, explicit rule statement, practice direction, and common-mistake cues.
 - teacher_notes must be practical speaking prompts for the teacher.
 - interaction_type should be specific, such as Individual work, Pair work, Group discussion, or Teacher-student interaction.
 - Do not add markdown or explanations.
@@ -858,6 +861,7 @@ Requirements:
 - Keep the slide classroom-ready and easy to project.
 - Do not output generic placeholders like "Complete the classroom task.".
 - Do not output empty "Step 1 / Step 2 / Step 3" style placeholders.
+- When slide_type is careful_reading / structure_analysis / grammar_rule, include concrete structure cues (e.g., Problem-Solution-Result, Opening-Body-Ending, Examples-Rule-Practice).
 - teacher_notes should guide real teaching moves.
 - Do not add markdown or explanations.
 """

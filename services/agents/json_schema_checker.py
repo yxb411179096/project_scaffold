@@ -24,6 +24,8 @@ OPTIONAL_FIELDS = (
     "useful_expressions",
     "possible_answers",
     "chinese_hint",
+    "graphic_type",
+    "graphic_data",
 )
 
 
@@ -48,6 +50,8 @@ def _normalize_optional_value(field, value):
     if field in {"useful_expressions", "possible_answers"}:
         return _normalize_visible_content(value)
     if field == "layout_plan":
+        return value if isinstance(value, dict) else {}
+    if field == "graphic_data":
         return value if isinstance(value, dict) else {}
     return _normalize_short_text(value)
 

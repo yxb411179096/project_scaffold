@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between flex-wrap gap-2 align-items-center mb-3">
+      <div>
+        <h1 class="h4 mb-1">知识库治理</h1>
+        <p class="text-muted mb-0">查看元信息完整度、索引状态、整本教材识别与重索引建议。</p>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_list') }}">返回列表</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_coverage') }}">资料覆盖情况</a>
+      </div>
+    </div>
+    <div class="row g-2">
+      <div class="col-md-2"><div class="info-strip">总数：{{ stats.total }}</div></div>
+      <div class="col-md-2"><div class="info-strip">已索引：{{ stats.indexed }}</div></div>
+      <div class="col-md-2"><div class="info-strip">未索引：{{ stats.unindexed }}</div></div>
+      <div class="col-md-2"><div class="info-strip">元信息完整：{{ stats.metadata_good }}</div></div>
+      <div class="col-md-2"><div class="info-strip">元信息风险：{{ stats.metadata_risk }}</div></div>
+      <div class="col-md-2"><div class="info-strip">整本教材：{{ stats.whole_book }}</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <form method="get" class="row g-2 mb-3">
+      <div class="col-md-2"><select name="textbook" class="form-select"><option value="">教材</option>{% for o in textbook_options %}<option value="{{ o }}" {% if request.args.get('textbook')==o %}selected{% endif %}>{{ o }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><select name="volume" class="form-select"><option value="">册别</option>{% for o in volume_options %}<option value="{{ o }}" {% if request.args.get('volume')==o %}selected{% endif %}>{{ o }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><select name="unit" class="form-select"><option value="">单元</option>{% for o in unit_options %}<option value="{{ o }}" {% if request.args.get('unit')==o %}selected{% endif %}>{{ o }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><select name="doc_type" class="form-select"><option value="">类型</option>{% for o in doc_type_options %}<option value="{{ o }}" {% if request.args.get('doc_type')==o %}selected{% endif %}>{{ o }}</option>{% endfor %}</select></div>
+      <div class="col-md-4 d-flex gap-2">
+        <button class="btn btn-outline-primary">筛选</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_governance') }}">重置</a>
+      </div>
+      <div class="col-md-12 d-flex flex-wrap gap-3 mt-1">
+        <label><input type="checkbox" name="only_incomplete" value="1" {% if request.args.get('only_incomplete')=='1' %}checked{% endif %}> 只看元信息不完整</label>
+        <label><input type="checkbox" name="only_unindexed" value="1" {% if request.args.get('only_unindexed')=='1' %}checked{% endif %}> 只看未索引</label>
+        <label><input type="checkbox" name="only_whole_book" value="1" {% if request.args.get('only_whole_book')=='1' %}checked{% endif %}> 只看整本教材</label>
+        <label><input type="checkbox" name="only_suggest_split" value="1" {% if request.args.get('only_suggest_split')=='1' %}checked{% endif %}> 只看建议拆分</label>
+      </div>
+    </form>
+    <form method="post" action="{{ url_for('knowledge.knowledge_bulk_reindex') }}" class="d-flex flex-wrap gap-2 align-items-center">
+      <label><input type="checkbox" name="reindex_unindexed" value="1" checked> 未索引资料</label>
+      <label><input type="checkbox" name="reindex_stale" value="1"> 文本变化资料</label>
+      <input type="number" name="limit" class="form-control" style="width: 110px" value="20" min="1" max="20">
+      <button class="btn btn-outline-warning">批量重索引</button>
+    </form>
+  </div>
+</section>
+
+<section class="card app-card">
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead><tr><th>标题</th><th>元信息</th><th>质量</th><th>索引</th><th>操作</th></tr></thead>
+      <tbody>
+      {% for doc in docs %}
+        <tr>
+          <td>{{ doc.title }}</td>
+          <td>{{ doc.grade or '—' }} / {{ doc.textbook or '—' }} / {{ doc.volume or '—' }} / {{ doc.unit or '—' }} / {{ doc.lesson_type or '—' }}</td>
+          <td>
+            <div>score={{ doc.metadata_quality_score or 0 }}</div>
+            {% for w in doc.warning_list[:2] %}<div class="small text-warning-emphasis">{{ w }}</div>{% endfor %}
+            {% if doc.is_whole_book %}<span class="badge text-bg-warning">整本教材</span>{% endif %}
+            {% if doc.metadata_reviewed %}<span class="badge text-bg-success">已确认</span>{% else %}<span class="badge text-bg-secondary">未确认</span>{% endif %}
+          </td>
+          <td>
+            <div>{{ doc.embedding_status }}</div>
+            <div class="small text-muted">chunk={{ doc.chunk_count }}</div>
+            {% if doc.need_reindex %}<span class="badge text-bg-danger">需重索引</span>{% endif %}
+          </td>
+          <td>
+            <div class="d-flex flex-wrap gap-2">
+              <a class="btn btn-sm btn-outline-primary" href="{{ url_for('knowledge.knowledge_detail', doc_id=doc.id) }}">查看</a>
+              <form method="post" action="{{ url_for('knowledge.knowledge_suggest_metadata', doc_id=doc.id) }}"><button class="btn btn-sm btn-outline-info">建议元信息</button></form>
+              <form method="post" action="{{ url_for('knowledge.knowledge_mark_metadata_reviewed', doc_id=doc.id) }}"><button class="btn btn-sm btn-outline-secondary">标记已确认</button></form>
+              <form method="post" action="{{ url_for('knowledge.knowledge_reindex', doc_id=doc.id) }}"><button class="btn btn-sm btn-outline-warning">重索引</button></form>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-4">暂无资料。</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

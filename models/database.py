@@ -340,6 +340,7 @@ def init_db():
                 duration INTEGER,
                 student_level TEXT,
                 style TEXT,
+                ppt_style TEXT DEFAULT 'default',
                 extra_requirements TEXT,
                 use_knowledge_base INTEGER DEFAULT 0,
                 knowledge_query TEXT,
@@ -454,6 +455,20 @@ def init_db():
                 chunk_count INTEGER DEFAULT 0,
                 vector_collection TEXT DEFAULT '',
                 embedding_error TEXT DEFAULT '',
+                metadata_reviewed INTEGER DEFAULT 0,
+                metadata_quality_score INTEGER DEFAULT 0,
+                metadata_warnings TEXT DEFAULT '',
+                is_whole_book INTEGER DEFAULT 0,
+                suggested_title TEXT DEFAULT '',
+                suggested_doc_type TEXT DEFAULT '',
+                suggested_grade TEXT DEFAULT '',
+                suggested_textbook TEXT DEFAULT '',
+                suggested_volume TEXT DEFAULT '',
+                suggested_unit TEXT DEFAULT '',
+                suggested_lesson_type TEXT DEFAULT '',
+                suggested_tags TEXT DEFAULT '',
+                source_unit_key TEXT DEFAULT '',
+                last_indexed_text_hash TEXT DEFAULT '',
                 indexed_at TEXT,
                 created_at TEXT,
                 updated_at TEXT
@@ -489,6 +504,7 @@ def init_db():
         ensure_column(conn, "lesson_tasks", "manuscript_summary", "TEXT")
         ensure_column(conn, "lesson_tasks", "manuscript_analysis_json", "TEXT")
         ensure_column(conn, "lesson_tasks", "source_word_count", "INTEGER")
+        ensure_column(conn, "lesson_tasks", "ppt_style", "TEXT DEFAULT 'default'")
         ensure_column(conn, "lesson_tasks", "use_knowledge_base", "INTEGER DEFAULT 0")
         ensure_column(conn, "lesson_tasks", "knowledge_query", "TEXT")
         ensure_column(conn, "lesson_tasks", "knowledge_top_k", "INTEGER DEFAULT 5")
@@ -542,6 +558,20 @@ def init_db():
         ensure_column(conn, "knowledge_documents", "chunk_count", "INTEGER DEFAULT 0")
         ensure_column(conn, "knowledge_documents", "vector_collection", "TEXT DEFAULT ''")
         ensure_column(conn, "knowledge_documents", "embedding_error", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "metadata_reviewed", "INTEGER DEFAULT 0")
+        ensure_column(conn, "knowledge_documents", "metadata_quality_score", "INTEGER DEFAULT 0")
+        ensure_column(conn, "knowledge_documents", "metadata_warnings", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "is_whole_book", "INTEGER DEFAULT 0")
+        ensure_column(conn, "knowledge_documents", "suggested_title", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "suggested_doc_type", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "suggested_grade", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "suggested_textbook", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "suggested_volume", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "suggested_unit", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "suggested_lesson_type", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "suggested_tags", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "source_unit_key", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_documents", "last_indexed_text_hash", "TEXT DEFAULT ''")
         ensure_column(conn, "knowledge_documents", "indexed_at", "TEXT")
         ensure_column(conn, "knowledge_chunks", "document_id", "INTEGER")
         ensure_column(conn, "knowledge_chunks", "chunk_index", "INTEGER")
@@ -736,6 +766,20 @@ def _normalize_knowledge_document_row(row):
     data["chunk_count"] = _normalize_int(data.get("chunk_count"), default=0, minimum=0)
     data["vector_collection"] = str(data.get("vector_collection") or "").strip()
     data["embedding_error"] = str(data.get("embedding_error") or "").strip()
+    data["metadata_reviewed"] = bool(data.get("metadata_reviewed"))
+    data["metadata_quality_score"] = _normalize_int(data.get("metadata_quality_score"), default=0, minimum=0, maximum=100)
+    data["metadata_warnings"] = str(data.get("metadata_warnings") or "").strip()
+    data["is_whole_book"] = bool(data.get("is_whole_book"))
+    data["suggested_title"] = str(data.get("suggested_title") or "").strip()
+    data["suggested_doc_type"] = str(data.get("suggested_doc_type") or "").strip()
+    data["suggested_grade"] = str(data.get("suggested_grade") or "").strip()
+    data["suggested_textbook"] = str(data.get("suggested_textbook") or "").strip()
+    data["suggested_volume"] = str(data.get("suggested_volume") or "").strip()
+    data["suggested_unit"] = str(data.get("suggested_unit") or "").strip()
+    data["suggested_lesson_type"] = str(data.get("suggested_lesson_type") or "").strip()
+    data["suggested_tags"] = str(data.get("suggested_tags") or "").strip()
+    data["source_unit_key"] = str(data.get("source_unit_key") or "").strip()
+    data["last_indexed_text_hash"] = str(data.get("last_indexed_text_hash") or "").strip()
     data["indexed_at"] = str(data.get("indexed_at") or "").strip()
     data["created_at"] = str(data.get("created_at") or "").strip()
     data["updated_at"] = str(data.get("updated_at") or "").strip()
@@ -996,6 +1040,7 @@ def update_lesson_task(task_id, payload):
                 duration=?,
                 student_level=?,
                 style=?,
+                ppt_style=?,
                 extra_requirements=?,
                 use_knowledge_base=?,
                 knowledge_query=?,
@@ -1015,6 +1060,7 @@ def update_lesson_task(task_id, payload):
                 _normalize_int(merged.get("duration"), default=45, minimum=20, maximum=120),
                 merged.get("student_level"),
                 merged.get("style"),
+                merged.get("ppt_style") or "default",
                 merged.get("extra_requirements"),
                 1 if str(merged.get("use_knowledge_base") or "").strip() in {"1", "true", "True", "on", "yes"} else 0,
                 merged.get("knowledge_query"),
@@ -1049,8 +1095,8 @@ def create_knowledge_document(payload):
         cur = conn.execute(
             """
             INSERT INTO knowledge_documents
-            (title, doc_type, grade, textbook, volume, unit, lesson_type, source_type, file_name, original_file_path, text_file_path, parsed_text, summary, word_count, tags, status, error_message, embedding_status, chunk_count, vector_collection, embedding_error, indexed_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (title, doc_type, grade, textbook, volume, unit, lesson_type, source_type, file_name, original_file_path, text_file_path, parsed_text, summary, word_count, tags, status, error_message, embedding_status, chunk_count, vector_collection, embedding_error, metadata_reviewed, metadata_quality_score, metadata_warnings, is_whole_book, suggested_title, suggested_doc_type, suggested_grade, suggested_textbook, suggested_volume, suggested_unit, suggested_lesson_type, suggested_tags, source_unit_key, last_indexed_text_hash, indexed_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload.get("title"),
@@ -1074,6 +1120,20 @@ def create_knowledge_document(payload):
                 payload.get("chunk_count") or 0,
                 payload.get("vector_collection") or "",
                 payload.get("embedding_error") or "",
+                1 if payload.get("metadata_reviewed") else 0,
+                payload.get("metadata_quality_score") or 0,
+                payload.get("metadata_warnings") or "",
+                1 if payload.get("is_whole_book") else 0,
+                payload.get("suggested_title") or "",
+                payload.get("suggested_doc_type") or "",
+                payload.get("suggested_grade") or "",
+                payload.get("suggested_textbook") or "",
+                payload.get("suggested_volume") or "",
+                payload.get("suggested_unit") or "",
+                payload.get("suggested_lesson_type") or "",
+                payload.get("suggested_tags") or "",
+                payload.get("source_unit_key") or "",
+                payload.get("last_indexed_text_hash") or "",
                 payload.get("indexed_at"),
                 now(),
                 now(),
@@ -1089,7 +1149,7 @@ def update_knowledge_document(doc_id, payload):
         conn.execute(
             """
             UPDATE knowledge_documents
-            SET title=?, doc_type=?, grade=?, textbook=?, volume=?, unit=?, lesson_type=?, source_type=?, file_name=?, original_file_path=?, text_file_path=?, parsed_text=?, summary=?, word_count=?, tags=?, status=?, error_message=?, embedding_status=?, chunk_count=?, vector_collection=?, embedding_error=?, indexed_at=?, updated_at=?
+            SET title=?, doc_type=?, grade=?, textbook=?, volume=?, unit=?, lesson_type=?, source_type=?, file_name=?, original_file_path=?, text_file_path=?, parsed_text=?, summary=?, word_count=?, tags=?, status=?, error_message=?, embedding_status=?, chunk_count=?, vector_collection=?, embedding_error=?, metadata_reviewed=?, metadata_quality_score=?, metadata_warnings=?, is_whole_book=?, suggested_title=?, suggested_doc_type=?, suggested_grade=?, suggested_textbook=?, suggested_volume=?, suggested_unit=?, suggested_lesson_type=?, suggested_tags=?, source_unit_key=?, last_indexed_text_hash=?, indexed_at=?, updated_at=?
             WHERE id=?
             """,
             (
@@ -1114,6 +1174,20 @@ def update_knowledge_document(doc_id, payload):
                 payload.get("chunk_count") or 0,
                 payload.get("vector_collection") or "",
                 payload.get("embedding_error") or "",
+                1 if payload.get("metadata_reviewed") else 0,
+                payload.get("metadata_quality_score") or 0,
+                payload.get("metadata_warnings") or "",
+                1 if payload.get("is_whole_book") else 0,
+                payload.get("suggested_title") or "",
+                payload.get("suggested_doc_type") or "",
+                payload.get("suggested_grade") or "",
+                payload.get("suggested_textbook") or "",
+                payload.get("suggested_volume") or "",
+                payload.get("suggested_unit") or "",
+                payload.get("suggested_lesson_type") or "",
+                payload.get("suggested_tags") or "",
+                payload.get("source_unit_key") or "",
+                payload.get("last_indexed_text_hash") or "",
                 payload.get("indexed_at"),
                 now(),
                 doc_id,

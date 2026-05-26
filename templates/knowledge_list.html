@@ -10,6 +10,8 @@
       </div>
       <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_semantic_search_page') }}">语义检索</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_governance') }}">知识库治理</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_coverage') }}">资料覆盖情况</a>
         <a class="btn btn-primary" href="{{ url_for('knowledge.knowledge_new') }}">新增资料</a>
       </div>
     </div>
@@ -90,6 +92,7 @@
           <th>资料信息</th>
           <th>课型</th>
           <th>解析信息</th>
+          <th>治理</th>
           <th>索引状态</th>
           <th>创建时间</th>
           <th>操作</th>
@@ -127,6 +130,16 @@
                     <span class="badge text-bg-secondary">pending</span>
                   {% endif %}
                 </span>
+              </div>
+            </td>
+            <td>
+              <div class="knowledge-info-line">
+                <span>质量：{{ doc.metadata_quality_score or 0 }}</span>
+                <span>{% if doc.metadata_reviewed %}<span class="badge text-bg-success">已确认</span>{% else %}<span class="badge text-bg-secondary">未确认</span>{% endif %}</span>
+              </div>
+              <div class="knowledge-info-line">
+                {% if doc.is_whole_book %}<span class="badge text-bg-warning">整本教材</span>{% endif %}
+                {% if doc.need_reindex %}<span class="badge text-bg-danger">需重索引</span>{% endif %}
               </div>
             </td>
             <td>
@@ -172,7 +185,7 @@
           {% endfor %}
         {% else %}
           <tr>
-            <td colspan="6" class="text-center py-4 text-muted">暂无知识库资料，请先上传教学资料。</td>
+            <td colspan="8" class="text-center py-4 text-muted">暂无知识库资料，请先上传教学资料。</td>
           </tr>
         {% endif %}
       </tbody>
