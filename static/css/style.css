@@ -224,6 +224,33 @@ body {
   border-left: 4px solid #6d74c9;
 }
 
+.quality-export-summary {
+  border-left: 4px solid var(--app-line);
+}
+
+.quality-status {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.quality-ok {
+  background: #e8f7ef;
+  color: #216e41;
+}
+
+.quality-warning {
+  background: #fff4de;
+  color: #8b5b15;
+}
+
+.quality-critical {
+  background: #ffe6e6;
+  color: #9f2727;
+}
+
 .preview-card-header {
   display: flex;
   justify-content: space-between;

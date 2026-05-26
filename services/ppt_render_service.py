@@ -22,6 +22,32 @@ from services.ppt_style_config import get_ppt_style_profile
 
 SLIDE_SIZE = (13.333, 7.5)
 
+# Unified design constants (0.18.0)
+SLIDE_W = SLIDE_SIZE[0]
+SLIDE_H = SLIDE_SIZE[1]
+MARGIN_X = 0.9
+MARGIN_Y = 0.55
+SAFE_BOTTOM = 6.85
+FOOTER_HEIGHT = 0.28
+TITLE_FONT_SIZE = 24
+SUBTITLE_FONT_SIZE = 16
+BODY_FONT_SIZE = 16
+SMALL_FONT_SIZE = 10
+CARD_RADIUS = 0.12
+CARD_GAP = 0.2
+MAX_BULLETS = 5
+MAX_BULLET_CHARS = 80
+MAX_TITLE_CHARS = 90
+
+COLOR_PRIMARY = (21, 76, 121)
+COLOR_SECONDARY = (51, 115, 167)
+COLOR_ACCENT = (244, 178, 102)
+COLOR_TEXT = (32, 43, 57)
+COLOR_MUTED = (102, 112, 133)
+COLOR_CARD_BG = (248, 251, 253)
+COLOR_BORDER = (215, 225, 234)
+COLOR_WARNING = (215, 94, 46)
+
 
 def _rgb(color_tuple):
     return RGBColor(*color_tuple)
@@ -32,6 +58,60 @@ def _set_run_style(paragraph, size, color, bold=False, italic=False):
     paragraph.font.color.rgb = _rgb(color)
     paragraph.font.bold = bold
     paragraph.font.italic = italic
+
+
+def estimate_text_lines(text, max_chars_per_line):
+    text = str(text or "").strip()
+    if not text:
+        return 1
+    max_chars_per_line = max(8, int(max_chars_per_line or 30))
+    lines = 0
+    for chunk in text.splitlines() or [text]:
+        chunk = chunk.strip()
+        if not chunk:
+            lines += 1
+            continue
+        lines += max(1, (len(chunk) + max_chars_per_line - 1) // max_chars_per_line)
+    return lines
+
+
+def truncate_text(text, max_chars, suffix="..."):
+    text = str(text or "").strip()
+    if max_chars <= 0:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    return text[: max(1, max_chars - len(suffix))].rstrip() + suffix
+
+
+def fit_font_size(text, box_width, box_height, max_size, min_size):
+    width = max(float(box_width), 0.2)
+    height = max(float(box_height), 0.2)
+    lines = estimate_text_lines(text, max_chars_per_line=max(12, int(width * 11)))
+    size = int(min(max_size, (height * 72) / max(lines, 1)))
+    return max(min_size, size)
+
+
+def split_long_text_to_bullets(text):
+    text = str(text or "").strip()
+    if not text:
+        return []
+    parts = re.split(r"[。！？!?;；\n]+", text)
+    return [p.strip() for p in parts if p and p.strip()]
+
+
+def normalize_bullets(items, max_items=MAX_BULLETS, max_chars_each=MAX_BULLET_CHARS):
+    normalized = []
+    for item in list(items or []):
+        text = str(item or "").strip()
+        if not text:
+            continue
+        if len(text) > max_chars_each:
+            text = truncate_text(text, max_chars_each)
+        normalized.append(text)
+        if len(normalized) >= max_items:
+            break
+    return normalized
 
 
 def _set_background(slide, prs, style):
@@ -76,7 +156,7 @@ def _add_textbox(
     text_frame = textbox.text_frame
     text_frame.word_wrap = True
     text_frame.vertical_anchor = valign
-    text_frame.text = text
+    text_frame.text = truncate_text(text, 420)
     paragraph = text_frame.paragraphs[0]
     paragraph.alignment = align
     _set_run_style(paragraph, size, color or (32, 43, 57), bold=bold)
@@ -88,7 +168,7 @@ def _add_bullets(slide, items, left, top, width, height, style, size=20, level=0
     text_frame = textbox.text_frame
     text_frame.word_wrap = True
     text_frame.clear()
-    for index, item in enumerate(_limit_items(items, limit=5)):
+    for index, item in enumerate(normalize_bullets(items, max_items=MAX_BULLETS, max_chars_each=MAX_BULLET_CHARS)):
         paragraph = text_frame.paragraphs[0] if index == 0 else text_frame.add_paragraph()
         paragraph.text = str(item)
         paragraph.level = level
@@ -106,13 +186,24 @@ def _add_header_band(slide, slide_data, style):
         Inches(8.9),
         Inches(0.35),
         text=slide_data["title"],
-        size=24,
+        size=TITLE_FONT_SIZE,
         color=(255, 255, 255),
         bold=True,
     )
 
 
-def _add_page_number(slide, slide_index, style):
+def _add_footer(slide, slide_index, task, style):
+    footer_text = f"{task.get('unit') or task.get('course_title') or 'Lesson'}"
+    _add_textbox(
+        slide,
+        Inches(MARGIN_X),
+        Inches(SAFE_BOTTOM),
+        Inches(8.0),
+        Inches(FOOTER_HEIGHT),
+        text=truncate_text(footer_text, 72),
+        size=SMALL_FONT_SIZE,
+        color=style.get("muted", COLOR_MUTED),
+    )
     _add_panel(slide, Inches(11.85), Inches(6.78), Inches(0.78), Inches(0.33), style["soft"])
     _add_textbox(
         slide,
@@ -121,7 +212,7 @@ def _add_page_number(slide, slide_index, style):
         Inches(0.56),
         Inches(0.16),
         text=str(slide_index),
-        size=10,
+        size=SMALL_FONT_SIZE,
         color=style["primary"],
         bold=True,
         align=PP_ALIGN.CENTER,
@@ -129,10 +220,10 @@ def _add_page_number(slide, slide_index, style):
 
 
 def _limit_items(items, limit=5):
-    cleaned = [str(item).strip() for item in items if str(item or "").strip()]
+    cleaned = [truncate_text(str(item).strip(), MAX_BULLET_CHARS) for item in items if str(item or "").strip()]
     if len(cleaned) <= limit:
         return cleaned
-    return cleaned[: limit - 1] + ["..."]
+    return cleaned[: limit - 1] + ["More details are included in the teacher script."]
 
 
 def _is_orphan_number_marker(text):
@@ -161,7 +252,10 @@ def _block_title(block, default):
 
 
 def _block_items(block, fallback=None):
-    items = _limit_items((block or {}).get("items") or fallback or [], limit=5)
+    source_items = (block or {}).get("items") or fallback or []
+    if isinstance(source_items, str):
+        source_items = split_long_text_to_bullets(source_items)
+    items = normalize_bullets(source_items, max_items=MAX_BULLETS, max_chars_each=MAX_BULLET_CHARS)
     banned = {
         "complete the classroom task.",
         "complete the task.",
@@ -176,7 +270,7 @@ def _block_items(block, fallback=None):
         if re.fullmatch(r"step\s*[1-3]\s*[:：]?\s*$", lowered):
             continue
         cleaned.append(text)
-    return cleaned or ["Follow the slide task and prepare one clear answer."]
+    return cleaned or ["Follow the task and prepare one clear answer with evidence."]
 
 
 def _add_teacher_hint(slide, slide_data, style):
@@ -269,8 +363,8 @@ def _draw_image_placeholder(slide, left, top, width, height, style, label):
         top + Inches(0.55),
         width - Inches(0.5),
         Inches(0.9),
-        text=label,
-        size=15,
+        text=f"Image suggestion:\n{truncate_text(label, 90)}",
+        size=13,
         color=style["secondary"],
         bold=True,
         align=PP_ALIGN.CENTER,
@@ -393,7 +487,7 @@ def cover_layout(slide, slide_data, task, prs, style):
         Inches(7.2),
         Inches(1.65),
         text=slide_data["title"],
-        size=28,
+        size=fit_font_size(slide_data["title"], 7.2, 1.65, 30, 20),
         color=style["primary"],
         bold=True,
     )
@@ -414,7 +508,7 @@ def cover_layout(slide, slide_data, task, prs, style):
     meta_block = _find_block(_get_content_blocks(slide_data), "meta")
     _add_bullets(
         slide,
-        _block_items(meta_block, fallback=slide_data.get("visible_content", [])),
+        normalize_bullets(_block_items(meta_block, fallback=slide_data.get("visible_content", [])), max_items=4, max_chars_each=70),
         Inches(1.15),
         Inches(4.45),
         Inches(7.0),
@@ -442,10 +536,10 @@ def cover_layout(slide, slide_data, task, prs, style):
 def objectives_layout(slide, slide_data, task, prs, style):
     _set_background(slide, prs, style)
     _add_header_band(slide, slide_data, style)
-    raw_blocks = _get_content_blocks(slide_data) or [
+    raw_blocks = (_get_content_blocks(slide_data) or [
         {"title": f"Objective {idx + 1}", "items": [item]}
         for idx, item in enumerate(_limit_items(slide_data.get("visible_content", []), 3))
-    ]
+    ])[:5]
     blocks = []
     for block in raw_blocks:
         valid_items = [
@@ -456,32 +550,33 @@ def objectives_layout(slide, slide_data, task, prs, style):
     if not blocks:
         blocks = [{"title": "Objective 1", "items": ["Understand the lesson goal and complete the key task."]}]
 
-    card_positions = [Inches(0.95), Inches(4.45), Inches(7.95)]
+    card_positions = [Inches(0.95), Inches(3.55), Inches(6.15), Inches(8.75), Inches(11.35)]
+    card_width = Inches(2.25 if len(blocks) >= 4 else 2.95)
     for index, left in enumerate(card_positions):
         if index >= len(blocks):
             break
         block = blocks[index]
-        _add_panel(slide, left, Inches(1.85), Inches(2.95), Inches(3.55), style["surface"], line_color=style["soft"])
+        _add_panel(slide, left, Inches(1.85), card_width, Inches(3.55), style["surface"], line_color=style["soft"])
         _add_textbox(
             slide,
             left + Inches(0.22),
             Inches(2.08),
-            Inches(2.5),
+            card_width - Inches(0.35),
             Inches(0.32),
-            text=_block_title(block, f"Objective {index + 1}"),
+            text=truncate_text(_block_title(block, f"Objective {index + 1}"), 32),
             size=15,
             color=style["primary"],
             bold=True,
         )
         _add_bullets(
             slide,
-            _block_items(block, ["Understand one clear learning objective."]),
+            normalize_bullets(_block_items(block, ["Understand one clear learning objective."]), max_items=3, max_chars_each=65),
             left + Inches(0.22),
             Inches(2.55),
-            Inches(2.45),
+            card_width - Inches(0.35),
             Inches(2.35),
             style,
-            size=16,
+            size=14,
         )
 
     _add_teacher_hint(slide, slide_data, style)
@@ -647,15 +742,21 @@ def reading_task_layout(slide, slide_data, task, prs, style):
     primary = _find_block(blocks, "task_steps") or {"title": "Task Steps", "items": slide_data.get("visible_content", [])}
     secondary = _find_block(blocks, "checklist") or {"title": "Do This", "items": []}
 
+    source_items = normalize_bullets(primary.get("items", []), max_items=4, max_chars_each=70)
     cards = [
-        (Inches(0.9), primary.get("items", [])[:1] or ["Read quickly and find the main idea."], "Task 1"),
-        (Inches(4.45), primary.get("items", [])[1:2] or ["Match headings with paragraphs."], "Task 2"),
-        (Inches(8.0), primary.get("items", [])[2:3] or ["Choose the best title and explain why."], "Task 3"),
+        (Inches(0.9), source_items[:1] or ["Read quickly and find the main idea."], "Fast Reading"),
+        (Inches(4.45), source_items[1:2] or ["Match headings with paragraphs."], "Fast Reading"),
+        (Inches(8.0), source_items[2:3] or ["Answer with text evidence."], "Careful Reading"),
     ]
     for left, items, title in cards:
         _add_panel(slide, left, Inches(1.95), Inches(2.95), Inches(3.15), style["surface"], line_color=style["soft"])
         _add_textbox(slide, left + Inches(0.22), Inches(2.18), Inches(2.4), Inches(0.28), title, size=14, color=style["primary"], bold=True)
-        _add_bullets(slide, items or ["Find one clear answer with text evidence."], left + Inches(0.22), Inches(2.55), Inches(2.45), Inches(1.8), style, size=17)
+        _add_bullets(slide, items or ["Find one clear answer with text evidence."], left + Inches(0.22), Inches(2.55), Inches(2.45), Inches(1.8), style, size=15)
+
+    key_sentence = truncate_text(slide_data.get("key_sentence") or "", 130)
+    if key_sentence:
+        _add_panel(slide, Inches(0.95), Inches(5.05), Inches(10.9), Inches(0.32), style["accent"])
+        _add_textbox(slide, Inches(1.15), Inches(5.12), Inches(10.5), Inches(0.18), f"Key Sentence: {key_sentence}", size=10, color=(255, 255, 255), bold=True)
 
     _add_panel(slide, Inches(0.95), Inches(5.45), Inches(10.1), Inches(0.65), style["soft"])
     checklist_items = _block_items(secondary, ["Check your answers and prepare to share."])
@@ -699,7 +800,7 @@ def vocabulary_card_layout(slide, slide_data, task, prs, style):
     _set_background(slide, prs, style)
     _add_header_band(slide, slide_data, style)
     blocks = _get_content_blocks(slide_data)
-    positions = [Inches(0.95), Inches(4.45), Inches(7.95)]
+    positions = [Inches(0.95), Inches(3.95), Inches(6.95), Inches(9.95)]
 
     for index, left in enumerate(positions):
         block = blocks[index] if index < len(blocks) else {
@@ -710,11 +811,11 @@ def vocabulary_card_layout(slide, slide_data, task, prs, style):
                 "Example: Use it in one sentence.",
             ],
         }
-        _add_panel(slide, left, Inches(1.95), Inches(2.95), Inches(3.7), style["surface"], line_color=style["accent"])
+        _add_panel(slide, left, Inches(1.95), Inches(2.25), Inches(3.7), style["surface"], line_color=style["accent"])
         _add_panel(slide, left + Inches(0.18), Inches(2.12), Inches(0.72), Inches(0.38), style["accent"])
         _add_textbox(slide, left + Inches(0.34), Inches(2.18), Inches(0.4), Inches(0.18), str(index + 1), size=12, color=(255, 255, 255), bold=True, align=PP_ALIGN.CENTER)
-        _add_textbox(slide, left + Inches(1.0), Inches(2.08), Inches(1.75), Inches(0.28), _block_title(block, f"Card {index + 1}"), size=15, color=style["primary"], bold=True)
-        _add_bullets(slide, _block_items(block, ["Add one expression."]), left + Inches(0.24), Inches(2.72), Inches(2.4), Inches(1.95), style, size=17)
+        _add_textbox(slide, left + Inches(1.0), Inches(2.08), Inches(1.1), Inches(0.28), truncate_text(_block_title(block, f"Card {index + 1}"), 18), size=13, color=style["primary"], bold=True)
+        _add_bullets(slide, normalize_bullets(_block_items(block, ["Word: term", "Meaning: ...", "Example: ..."]), max_items=3, max_chars_each=52), left + Inches(0.24), Inches(2.72), Inches(1.85), Inches(1.95), style, size=12)
 
     _add_teacher_hint(slide, slide_data, style)
 
@@ -789,10 +890,11 @@ def discussion_layout(slide, slide_data, task, prs, style):
 
     slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(4.0), Inches(3.45), Inches(4.65), Inches(3.45)).line.color.rgb = _rgb(style["accent"])
     slide.shapes.add_connector(MSO_CONNECTOR.STRAIGHT, Inches(8.32), Inches(3.45), Inches(8.85), Inches(3.45)).line.color.rgb = _rgb(style["accent"])
-    if _block_items(support_block, []):
+    support_items = normalize_bullets(_block_items(support_block, []), max_items=4, max_chars_each=42)
+    if support_items:
         _add_panel(slide, Inches(2.25), Inches(5.1), Inches(8.6), Inches(0.82), style["soft"], line_color=style["soft"])
         _add_textbox(slide, Inches(2.5), Inches(5.3), Inches(1.8), Inches(0.2), "Useful Expressions", size=11, color=style["primary"], bold=True)
-        _add_tag_strip(slide, _block_items(support_block, []), Inches(4.35), Inches(5.2), Inches(5.9), style)
+        _add_tag_strip(slide, support_items, Inches(4.35), Inches(5.2), Inches(5.9), style)
     _add_teacher_hint(slide, slide_data, style)
 
 
@@ -802,7 +904,7 @@ def mindmap_layout(slide, slide_data, task, prs, style):
     blocks = _get_content_blocks(slide_data)
     center_block = _find_block(blocks, "center_topic") or {"title": "Center", "items": slide_data.get("visible_content", [])[:1]}
     branches_block = _find_block(blocks, "branches") or {"title": "Branches", "items": slide_data.get("visible_content", [])[1:]}
-    branches = _block_items(branches_block, ["Key point", "Language", "Task"])
+    branches = normalize_bullets(_block_items(branches_block, ["What we learned", "How we learned", "What to do next"]), max_items=4, max_chars_each=40)
 
     center = _add_panel(slide, Inches(4.8), Inches(2.55), Inches(3.2), Inches(1.4), style["surface"], line_color=style["accent"])
     center.line.width = Pt(2)
@@ -828,8 +930,8 @@ def homework_layout(slide, slide_data, task, prs, style):
     _set_background(slide, prs, style)
     _add_header_band(slide, slide_data, style)
     blocks = _get_content_blocks(slide_data)
-    required_block = _find_block(blocks, "required_task") or {"title": "基础作业", "items": slide_data.get("visible_content", [])[:2] or ["Review target words and one key sentence.", "Finish the guided task from class."]}
-    extension_block = _find_block(blocks, "extension_task") or {"title": "提升 / 拓展", "items": slide_data.get("visible_content", [])[2:4] or ["Write one extra paragraph with evidence.", "Prepare one question for next lesson."]}
+    required_block = _find_block(blocks, "required_task") or {"title": "Basic", "items": slide_data.get("visible_content", [])[:2] or ["Review target words and one key sentence.", "Finish the guided task from class."]}
+    extension_block = _find_block(blocks, "extension_task") or {"title": "Optional / Challenge", "items": slide_data.get("visible_content", [])[2:4] or ["Write one extra paragraph with evidence.", "Prepare one question for next lesson."]}
     reminder_block = _find_block(blocks, "reminder") or {"title": "Reminder", "items": slide_data.get("visible_content", [])[4:]}
 
     for left, block, fill in [
@@ -838,7 +940,7 @@ def homework_layout(slide, slide_data, task, prs, style):
     ]:
         _add_panel(slide, left, Inches(1.85), Inches(5.1), Inches(3.2), fill, line_color=style["soft"])
         _add_textbox(slide, left + Inches(0.22), Inches(2.12), Inches(2.8), Inches(0.3), _block_title(block, "Task"), size=17, color=style["primary"], bold=True)
-        _add_bullets(slide, _block_items(block, ["Complete one specific homework product with clear quality target."]), left + Inches(0.22), Inches(2.58), Inches(4.5), Inches(2.15), style, size=17)
+        _add_bullets(slide, normalize_bullets(_block_items(block, ["Complete one specific homework product with clear quality target."]), max_items=2, max_chars_each=70), left + Inches(0.22), Inches(2.58), Inches(4.5), Inches(2.15), style, size=15)
 
     _add_panel(slide, Inches(1.45), Inches(5.45), Inches(10.3), Inches(0.65), style["accent"])
     _add_textbox(
@@ -936,7 +1038,7 @@ def export_pptx(task, slides):
         renderer = LAYOUT_RENDERERS.get(layout_type, reading_task_layout)
         renderer(slide, render_data, task, prs, style)
         _add_chinese_hint(slide, render_data, style)
-        _add_page_number(slide, render_data.get("slide_index", 1), style)
+        _add_footer(slide, render_data.get("slide_index", 1), task, style)
 
     filename = safe_course_filename(task, "slides.pptx")
     path = EXPORT_PPTX_DIR / filename

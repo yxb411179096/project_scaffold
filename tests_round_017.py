@@ -26,7 +26,7 @@ def run():
         {"slide_index": 2, "slide_type": "reading_task", "title": "", "visible_content": [], "layout_plan": {}},
     ]
     bad_report = check_ppt_quality(_build_task("Reading", "The Internet"), bad_slides)
-    assert bad_report["status"] == "有风险"
+    assert bad_report["status"] in {"有风险", "严重问题"}
     assert bad_report["issue_count"] > 0
 
     # 2) Reading fallback should include fast/careful reading tasks

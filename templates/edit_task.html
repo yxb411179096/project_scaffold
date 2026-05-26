@@ -22,6 +22,24 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('ppt.tasks') }}">返回任务列表</a>
   </div>
 </div>
+{% if has_slides and quality_report %}
+<div class="app-card p-3 mb-4 quality-export-summary">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div>
+      <strong>导出前质量摘要：</strong>
+      {% if quality_report.status == '通过' %}
+      <span class="quality-status quality-ok">通过</span>
+      {% elif quality_report.status == '严重问题' %}
+      <span class="quality-status quality-critical">严重问题</span>
+      {% else %}
+      <span class="quality-status quality-warning">有风险</span>
+      {% endif %}
+      <span class="small text-muted ms-2">问题 {{ quality_report.issue_count }}（严重 {{ quality_report.severe_count }}）</span>
+    </div>
+    <div class="small text-muted">本检查基于规则，不代表最终 PowerPoint 视觉效果。请以实际打开 PPTX 为准。</div>
+  </div>
+</div>
+{% endif %}
 
 <div class="row g-4">
   <div class="col-lg-4">
@@ -343,8 +361,14 @@
           <div class="meta-label">严重风险</div>
           <div class="meta-value">{{ quality_report.severe_count }}</div>
         </div>
+        <div class="meta-card">
+          <div class="meta-label">Warning</div>
+          <div class="meta-value">{{ quality_report.warning_count }}</div>
+        </div>
       </div>
-      {% if quality_report.export_warning %}
+      {% if quality_report.status == '严重问题' %}
+      <div class="warning-note mb-3">当前课件存在严重质量风险，建议先修改。</div>
+      {% elif quality_report.export_warning %}
       <div class="warning-note mb-3">当前课件存在质量风险，建议修改后再导出。</div>
       {% endif %}
       {% if quality_report.structure_issues %}

@@ -152,6 +152,16 @@
 - manuscript 任务新增“重新分析文案并生成课件”后，若仍选择保真模式，会继续按原文页结构重跑，不会退化成课型模板页。
 - 完成第十一轮验证：`python -m compileall app.py routes models services` 通过；Flask `test_client` 回归覆盖 AI 自动生成、保真模式 manuscript 生成、普通重构模式 manuscript 生成、编辑页预览、PPTX 导出、DOCX 导出；“The Power of Reading” 测试文案在保真模式下前 5 页与原文页结构对齐，第 4 页 Key Sentence、图片建议、Teacher’s Guide 与 Useful Expressions 均被保留。
 
+## 0.18.0
+- `services/ppt_render_service.py` 统一了 PPT 设计常量（尺寸、边距、字号层级、色彩变量、页脚安全区），并逐步替换关键布局中的 magic number，提升导出版式一致性与可维护性。
+- 新增文本稳态工具函数：`estimate_text_lines`、`fit_font_size`、`truncate_text`、`normalize_bullets`、`split_long_text_to_bullets`；用于标题缩放、长文截断、bullet 数量/长度约束，降低文字溢出风险。
+- 强化封面、目标、阅读任务、词汇卡、讨论、总结、作业等布局函数的密度控制与回退逻辑，避免卡片拥挤和空泛文案，支持关键句突出与更稳定的任务展示。
+- 图片建议渲染升级为统一图片占位框样式（`Image suggestion:`），并保持不写 notesSlides / notesMasters / 底层 XML 的兼容导出策略。
+- 所有页面统一页脚信息与页码样式：左侧显示课题/Unit，右侧显示页码，视觉弱化但稳定可见。
+- `services/ppt_quality_check_service.py` 增强为分级报告（`info / warning / critical`），新增 `title_too_long`、`too_many_bullets`、`bullet_too_long`、`possible_overflow`、`too_many_visual_blocks`、`image_suggestion_not_rendered`、`layout_missing`、`teacher_notes_too_short`、`page_may_be_too_dense` 等检查项。
+- 编辑页新增导出前质量摘要提示（通过/有风险/严重问题）和规则说明文案；严重问题会红色提示“建议先修改”，但仍不阻止导出。
+- 新增 `tests_round_018.py`，覆盖 bullet 规范化、文本截断、字号自适应、质量检查命中、超长内容渲染稳定性与 image_suggestion 渲染路径回归。
+
 ## 0.10.0
 - 优化 `manuscript_analyzer_agent.py`，增强教案 / 讲稿 / 课文 / 说课稿 / 练习材料 / 综合材料识别，并新增 `detected_sections`、`missing_sections`、`content_density`、`recommended_generation_strategy`、`organization_suggestion` 等分析字段，用于后续拆页和编辑页预览。
 - 优化 `lesson_structure_extractor_agent.py`，更强地识别教学目标、重点难点、导入、阅读任务、语法讲解、写作任务、课堂活动、总结、作业和板书；当原文缺环节时，会按课型自动补齐基础教学步骤。
