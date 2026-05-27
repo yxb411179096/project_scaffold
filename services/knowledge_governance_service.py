@@ -114,6 +114,8 @@ def suggest_metadata(document):
     file_name = _clean(doc.get("file_name"))
     parsed_text = _clean(doc.get("parsed_text"))[:3000]
     blob = f"{title}\n{file_name}\n{parsed_text}"
+    head_blob = f"{title}\n{file_name}"
+    is_whole_book = evaluate_document_metadata(doc).get("is_whole_book", False)
 
     suggested = {
         "suggested_title": "",
@@ -143,15 +145,21 @@ def suggest_metadata(document):
     if unit:
         suggested["suggested_unit"] = unit
 
-    lowered = blob.lower()
-    if "reading and thinking" in lowered or "reading" in lowered:
-        suggested["suggested_lesson_type"] = "Reading"
-    if "writing" in lowered or "reading for writing" in lowered:
-        suggested["suggested_lesson_type"] = "Writing"
-    if "grammar" in lowered or "discovering useful structures" in lowered:
-        suggested["suggested_lesson_type"] = "Grammar"
-    if "vocabulary" in lowered or "words and expressions" in lowered:
-        suggested["suggested_lesson_type"] = "Vocabulary"
+    lowered_blob = blob.lower()
+    lowered_head = head_blob.lower()
+    if is_whole_book:
+        suggested["suggested_lesson_type"] = "Other"
+    else:
+        if "reading for writing" in lowered_head:
+            suggested["suggested_lesson_type"] = "Writing"
+        elif "reading and thinking" in lowered_head:
+            suggested["suggested_lesson_type"] = "Reading"
+        elif "discovering useful structures" in lowered_head or " grammar " in f" {lowered_head} ":
+            suggested["suggested_lesson_type"] = "Grammar"
+        elif "words and expressions" in lowered_head or "vocabulary" in lowered_head:
+            suggested["suggested_lesson_type"] = "Vocabulary"
+        elif "reading and thinking" in lowered_blob:
+            suggested["suggested_lesson_type"] = "Reading"
 
     if "教案" in blob:
         suggested["suggested_doc_type"] = "教案"
@@ -170,6 +178,24 @@ def suggest_metadata(document):
         suggested["suggested_tags"] = ",".join(
             [meta.get("theme", ""), meta.get("reading_title", ""), "Reading and Thinking"]
         ).strip(",")
+    elif not suggested["suggested_tags"] and _clean(doc.get("tags")):
+        suggested["suggested_tags"] = _clean(doc.get("tags"))
+
+    # Never degrade existing valid metadata to empty in suggestions.
+    for field, src in (
+        ("suggested_doc_type", "doc_type"),
+        ("suggested_grade", "grade"),
+        ("suggested_textbook", "textbook"),
+        ("suggested_volume", "volume"),
+        ("suggested_unit", "unit"),
+        ("suggested_lesson_type", "lesson_type"),
+    ):
+        if not _clean(suggested[field]) and _valid(doc.get(src)):
+            suggested[field] = _clean(doc.get(src))
+
+    if not _clean(suggested["suggested_title"]) and _valid(doc.get("title")):
+        suggested["suggested_title"] = _clean(doc.get("title"))
+
     return suggested
 
 
@@ -197,11 +223,20 @@ def get_knowledge_coverage():
             unit_rows = []
             for unit, meta in units.items():
                 unit_docs = [d for d in docs if _clean(d.get("textbook")) == textbook and _clean(d.get("volume")) == volume and normalize_unit(d.get("unit")) == unit]
-                has_textbook = any(d.get("doc_type") == "教材" for d in unit_docs)
-                has_reading = any(_clean(d.get("lesson_type")) == "Reading" for d in unit_docs)
-                has_vocab = any(_clean(d.get("lesson_type")) == "Vocabulary" or d.get("doc_type") == "词汇表" for d in unit_docs)
-                has_plan = any(d.get("doc_type") in {"教案", "讲稿", "说课稿"} for d in unit_docs)
-                has_writing = any(_clean(d.get("lesson_type")) == "Writing" for d in unit_docs)
+                # Placeholder records should not count as real coverage.
+                effective_docs = [
+                    d
+                    for d in unit_docs
+                    if not (
+                        _clean(d.get("doc_type")) == "其他"
+                        and ("资料占位" in _clean(d.get("title")) or "资料占位" in _clean(d.get("tags")))
+                    )
+                ]
+                has_textbook = any(d.get("doc_type") == "教材" for d in effective_docs)
+                has_reading = any(_clean(d.get("lesson_type")) == "Reading" for d in effective_docs)
+                has_vocab = any(_clean(d.get("lesson_type")) == "Vocabulary" or d.get("doc_type") == "词汇表" for d in effective_docs)
+                has_plan = any(d.get("doc_type") in {"教案", "讲稿", "说课稿"} for d in effective_docs)
+                has_writing = any(_clean(d.get("lesson_type")) == "Writing" for d in effective_docs)
                 missing = []
                 if not has_reading:
                     missing.append("Reading")
@@ -221,9 +256,9 @@ def get_knowledge_coverage():
                         "has_vocabulary": has_vocab,
                         "has_lesson_plan": has_plan,
                         "has_writing": has_writing,
-                        "indexed_count": sum(1 for d in unit_docs if d.get("embedding_status") == "indexed"),
+                        "indexed_count": sum(1 for d in effective_docs if d.get("embedding_status") == "indexed"),
                         "missing": missing,
-                        "doc_count": len(unit_docs),
+                        "doc_count": len(effective_docs),
                     }
                 )
             coverage.append({"textbook": textbook, "volume": volume, "units": unit_rows})
@@ -279,10 +314,26 @@ def documents_need_reindex():
     for doc in docs:
         parsed = clean_extracted_text(doc.get("parsed_text") or "")
         text_hash = hashlib.sha1(parsed.encode("utf-8", errors="ignore")).hexdigest() if parsed else ""
-        stale_hash = bool(parsed and doc.get("last_indexed_text_hash") and doc.get("last_indexed_text_hash") != text_hash)
+        indexed = doc.get("embedding_status") == "indexed"
+        chunk_count = int(doc.get("chunk_count") or 0)
+        indexed_hash = _clean(doc.get("last_indexed_text_hash"))
+
+        # Backfill hash for historical indexed docs that missed this field.
+        if indexed and chunk_count > 0 and parsed and not indexed_hash:
+            update_knowledge_document(
+                doc["id"],
+                {
+                    **dict(doc),
+                    "last_indexed_text_hash": text_hash,
+                    "updated_at": now(),
+                },
+            )
+            indexed_hash = text_hash
+
+        stale_hash = bool(parsed and indexed_hash and indexed_hash != text_hash)
         need = (
-            (doc.get("embedding_status") != "indexed" and bool(parsed))
-            or (doc.get("chunk_count", 0) == 0 and bool(parsed))
+            (not indexed and bool(parsed))
+            or (indexed and chunk_count == 0 and bool(parsed))
             or stale_hash
         )
         if need:
@@ -290,4 +341,3 @@ def documents_need_reindex():
             item["_computed_text_hash"] = text_hash
             needs.append(item)
     return needs
-

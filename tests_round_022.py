@@ -51,6 +51,54 @@ def run():
     s = suggest_metadata({"title": "人教版 必修二 Unit 3 The Internet", "file_name": "", "parsed_text": "Reading and Thinking"})
     assert s["suggested_volume"] == "必修二"
     assert s["suggested_unit"] == "Unit 3"
+    assert s["suggested_lesson_type"] == "Reading"
+
+    # 3.1 keep existing valid value when no better inference
+    keep = suggest_metadata(
+        {
+            "title": "课堂资料",
+            "file_name": "",
+            "parsed_text": "some notes without clear metadata",
+            "grade": "高一",
+            "volume": "必修一",
+            "textbook": "人教版",
+            "unit": "Unit 1",
+            "lesson_type": "Other",
+        }
+    )
+    assert keep["suggested_grade"] == "高一"
+    assert keep["suggested_volume"] == "必修一"
+
+    # 3.2 whole-book should not aggressively become Writing
+    whole_s = suggest_metadata(
+        {
+            "title": "人教版 必修二 全册 教材整本",
+            "file_name": "必修二.pdf",
+            "parsed_text": "This book contains reading and writing sections.",
+            "lesson_type": "Other",
+        }
+    )
+    assert whole_s["suggested_lesson_type"] in {"Other", "通用"}
+
+    # 3.3 Writing only when explicit in title/file
+    writing_implicit = suggest_metadata(
+        {
+            "title": "Unit 3 materials",
+            "file_name": "unit3_notes.txt",
+            "parsed_text": "students will practice writing",
+            "lesson_type": "Other",
+        }
+    )
+    assert writing_implicit["suggested_lesson_type"] != "Writing"
+    writing_explicit = suggest_metadata(
+        {
+            "title": "Reading for Writing - Unit 3",
+            "file_name": "u3_reading_for_writing.docx",
+            "parsed_text": "",
+            "lesson_type": "Other",
+        }
+    )
+    assert writing_explicit["suggested_lesson_type"] == "Writing"
 
     # 4 coverage includes unit 3 internet
     coverage = get_knowledge_coverage()
@@ -77,6 +125,20 @@ def run():
     assert any(d["id"] == doc["id"] for d in needs)
     delete_knowledge_document(doc["id"])
 
+    # 6.1 indexed + hash consistent should not need reindex
+    indexed_doc = _seed_doc(
+        "[TEST] Round22 Indexed Clean",
+        embedding_status="indexed",
+        chunk_count=5,
+        last_indexed_text_hash="",
+        indexed_at="2026-01-01 00:00:00",
+    )
+    first_check = documents_need_reindex()
+    assert not any(d["id"] == indexed_doc["id"] for d in first_check)
+    refreshed = [d for d in query_knowledge_documents({"keyword": "[TEST] Round22 Indexed Clean"}, limit=5) if d["id"] == indexed_doc["id"]][0]
+    assert refreshed.get("last_indexed_text_hash")
+    delete_knowledge_document(indexed_doc["id"])
+
     # 7/8/9/10 pages and old routes
     app = create_app()
     app.config["TESTING"] = True
@@ -86,6 +148,16 @@ def run():
         assert client.get("/knowledge").status_code == 200
         assert client.get("/knowledge/search-semantic").status_code == 200
         assert client.get("/ppt/new").status_code == 200
+        clean_doc = _seed_doc(
+            "[TEST] Round22 Detail Indexed",
+            embedding_status="indexed",
+            chunk_count=3,
+            last_indexed_text_hash="",
+            indexed_at="2026-01-01 00:00:00",
+        )
+        detail_html = client.get(f"/knowledge/{clean_doc['id']}").data.decode("utf-8", errors="ignore")
+        assert "文本已变化或尚未索引，建议重新建立向量索引。" not in detail_html
+        delete_knowledge_document(clean_doc["id"])
 
     print("ROUND_022_OK")
 

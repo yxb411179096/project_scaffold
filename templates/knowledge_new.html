@@ -6,7 +6,14 @@
     <p class="text-muted">
       可上传教材、课文、教案、讲稿、词汇表、课堂表达等资料。第一版仅用于资料管理和普通检索，后续将接入 AI 生成流程。
     </p>
+    {% if recommended_label %}
+    <div class="alert alert-info py-2">当前补充类型：<strong>{{ recommended_label }}</strong></div>
+    {% endif %}
     <form method="post" enctype="multipart/form-data" class="row g-3">
+      <input type="hidden" name="supplement_type" value="{{ selected_supplement_type or 'reading_text' }}">
+      <input type="hidden" name="coverage_textbook" value="{{ (coverage_return.textbook if coverage_return else '') or '' }}">
+      <input type="hidden" name="coverage_volume" value="{{ (coverage_return.volume if coverage_return else '') or '' }}">
+      <input type="hidden" name="coverage_unit" value="{{ (coverage_return.unit if coverage_return else '') or '' }}">
       <div class="col-md-6">
         <label class="form-label">资料标题</label>
         <input class="form-control" name="title" value="{{ form_data.title }}" required>
@@ -74,7 +81,10 @@
         <input class="form-control" type="file" name="file" accept=".txt,.md,.docx,.pdf">
       </div>
       <div class="col-12 d-flex gap-2">
-        <button type="submit" class="btn btn-primary">保存并解析</button>
+        <button type="submit" name="action_after" value="detail" class="btn btn-primary">保存后查看详情</button>
+        <button type="submit" name="action_after" value="index_detail" class="btn btn-outline-success">保存并建立索引</button>
+        <button type="submit" name="action_after" value="coverage" class="btn btn-outline-secondary">保存后返回该 Unit 覆盖</button>
+        <button type="submit" name="action_after" value="index_coverage" class="btn btn-outline-secondary">保存+索引后返回覆盖</button>
         <a href="{{ url_for('knowledge.knowledge_list') }}" class="btn btn-outline-secondary">返回列表</a>
       </div>
     </form>

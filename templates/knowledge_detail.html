@@ -60,16 +60,37 @@
 <section class="card app-card mb-4">
   <div class="card-body">
     <h2 class="h6">建议元信息</h2>
+    <p class="text-muted mb-3">显示“当前值 / 建议值 / 是否建议修改”。若建议与当前一致，表示无需修改。</p>
     <div class="row g-2">
-      <div class="col-md-6"><strong>title：</strong>{{ doc.title or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_title or "—" }}</span></div>
-      <div class="col-md-6"><strong>doc_type：</strong>{{ doc.doc_type or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_doc_type or "—" }}</span></div>
-      <div class="col-md-6"><strong>grade：</strong>{{ doc.grade or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_grade or "—" }}</span></div>
-      <div class="col-md-6"><strong>textbook：</strong>{{ doc.textbook or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_textbook or "—" }}</span></div>
-      <div class="col-md-6"><strong>volume：</strong>{{ doc.volume or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_volume or "—" }}</span></div>
-      <div class="col-md-6"><strong>unit：</strong>{{ doc.unit or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_unit or "—" }}</span></div>
-      <div class="col-md-6"><strong>lesson_type：</strong>{{ doc.lesson_type or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_lesson_type or "—" }}</span></div>
-      <div class="col-md-6"><strong>tags：</strong>{{ doc.tags or "—" }} <span class="text-muted">→ {{ metadata_suggestions.suggested_tags or "—" }}</span></div>
+      {% set rows = [
+        ("title", doc.title, metadata_suggestions.suggested_title),
+        ("doc_type", doc.doc_type, metadata_suggestions.suggested_doc_type),
+        ("grade", doc.grade, metadata_suggestions.suggested_grade),
+        ("textbook", doc.textbook, metadata_suggestions.suggested_textbook),
+        ("volume", doc.volume, metadata_suggestions.suggested_volume),
+        ("unit", doc.unit, metadata_suggestions.suggested_unit),
+        ("lesson_type", doc.lesson_type, metadata_suggestions.suggested_lesson_type),
+        ("tags", doc.tags, metadata_suggestions.suggested_tags),
+      ] %}
+      {% for label, current, suggested in rows %}
+      {% set cur = (current or "—") %}
+      {% set sug = (suggested or current or "—") %}
+      {% set changed = (current or "") != (suggested or current or "") %}
+      <div class="col-md-6">
+        <strong>{{ label }}：</strong>
+        <span>{{ cur }}</span>
+        <span class="text-muted">→ {{ sug }}</span>
+        {% if changed %}
+        <span class="badge text-bg-warning ms-1">建议修改</span>
+        {% else %}
+        <span class="badge text-bg-secondary ms-1">无需修改</span>
+        {% endif %}
+      </div>
+      {% endfor %}
     </div>
+    {% if doc.is_whole_book %}
+    <div class="alert alert-warning mt-3 mb-0">该资料可能是整本教材，课型建议保持通用，建议按 Unit 拆分资料以提高命中准确性。</div>
+    {% endif %}
   </div>
 </section>
 

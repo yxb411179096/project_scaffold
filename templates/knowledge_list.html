@@ -1,195 +1,189 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="card app-card mb-4">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <div>
-        <h1 class="h4 mb-1">教学资料知识库</h1>
-        <p class="text-muted mb-0">支持资料上传、文本解析、元信息管理、关键词检索和语义检索。</p>
-        <div class="small text-muted mt-1">旧索引可点击“重索引”刷新 Chroma metadata，避免语义检索标题缺失。</div>
+<div class="knowledge-page-shell">
+<div class="knowledge-page-wide">
+  <section class="card app-card mb-4">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+        <div>
+          <h1 class="h4 mb-1">教学资料知识库</h1>
+          <p class="text-muted mb-1">支持资料上传、解析、治理与检索。</p>
+          <div class="small text-muted">
+            知识库治理：用于检查元信息、索引状态、整本教材和占位资料。资料覆盖情况：用于查看各册各单元缺失资料。
+          </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('knowledge.knowledge_semantic_search_page') }}">语义搜索</a>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('knowledge.knowledge_governance') }}">知识库治理</a>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('knowledge.knowledge_coverage') }}">资料覆盖情况</a>
+          <a class="btn btn-primary btn-sm" href="{{ url_for('knowledge.knowledge_new') }}">新增资料</a>
+        </div>
       </div>
-      <div class="d-flex flex-wrap gap-2">
-        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_semantic_search_page') }}">语义检索</a>
-        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_governance') }}">知识库治理</a>
-        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_coverage') }}">资料覆盖情况</a>
-        <a class="btn btn-primary" href="{{ url_for('knowledge.knowledge_new') }}">新增资料</a>
-      </div>
+      <form method="get" class="row g-2 mt-1">
+        <div class="col-lg-3 col-md-4">
+          <input class="form-control form-control-sm" type="text" name="keyword" placeholder="关键词" value="{{ filters.keyword }}">
+        </div>
+        <div class="col-lg-2 col-md-4">
+          <select class="form-select form-select-sm" name="doc_type">
+            <option value="">资料类型</option>
+            {% for option in doc_type_options %}
+            <option value="{{ option }}" {% if filters.doc_type == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-lg-1 col-md-4">
+          <select class="form-select form-select-sm" name="grade">
+            <option value="">年级</option>
+            {% for option in grade_options %}
+            <option value="{{ option }}" {% if filters.grade == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-lg-2 col-md-4">
+          <select class="form-select form-select-sm" name="textbook">
+            <option value="">教材版本</option>
+            {% for option in textbook_options %}
+            <option value="{{ option }}" {% if filters.textbook == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-lg-1 col-md-4">
+          <select class="form-select form-select-sm" name="volume">
+            <option value="">册别</option>
+            {% for option in volume_options %}
+            <option value="{{ option }}" {% if filters.volume == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-lg-1 col-md-4">
+          <select class="form-select form-select-sm" name="unit">
+            <option value="">单元</option>
+            {% for option in unit_options %}
+            <option value="{{ option }}" {% if filters.unit == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-lg-2 col-md-4">
+          <select class="form-select form-select-sm" name="lesson_type">
+            <option value="">课型</option>
+            {% for option in lesson_type_options %}
+            <option value="{{ option }}" {% if filters.lesson_type == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-lg-1 col-md-4">
+          <select class="form-select form-select-sm" name="status">
+            <option value="">状态</option>
+            {% for option in status_options %}
+            <option value="{{ option }}" {% if filters.status == option %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-lg-2 col-md-4">
+          <select class="form-select form-select-sm" name="placeholder_filter">
+            <option value="">占位资料筛选</option>
+            <option value="hide" {% if filters.placeholder_filter == "hide" %}selected{% endif %}>隐藏占位资料</option>
+            <option value="only" {% if filters.placeholder_filter == "only" %}selected{% endif %}>只看占位资料</option>
+          </select>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2 mt-2">
+          <button class="btn btn-outline-primary btn-sm" type="submit">筛选 / 搜索</button>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('knowledge.knowledge_list') }}">重置</a>
+        </div>
+      </form>
     </div>
-    <form method="get" class="row g-2">
-      <div class="col-md-4">
-        <input class="form-control" type="text" name="keyword" placeholder="关键词（标题 / 标签 / 摘要 / 正文）" value="{{ filters.keyword }}">
-      </div>
-      <div class="col-md-2">
-        <select class="form-select" name="doc_type">
-          <option value="">资料类型</option>
-          {% for option in doc_type_options %}
-          <option value="{{ option }}" {% if filters.doc_type == option %}selected{% endif %}>{{ option }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <select class="form-select" name="grade">
-          <option value="">年级</option>
-          {% for option in grade_options %}
-          <option value="{{ option }}" {% if filters.grade == option %}selected{% endif %}>{{ option }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <select class="form-select" name="textbook">
-          <option value="">教材版本</option>
-          {% for option in textbook_options %}
-          <option value="{{ option }}" {% if filters.textbook == option %}selected{% endif %}>{{ option }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <select class="form-select" name="status">
-          <option value="">状态</option>
-          {% for option in status_options %}
-          <option value="{{ option }}" {% if filters.status == option %}selected{% endif %}>{{ option }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <select class="form-select" name="volume">
-          <option value="">册别</option>
-          {% for option in volume_options %}
-          <option value="{{ option }}" {% if filters.volume == option %}selected{% endif %}>{{ option }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <select class="form-select" name="unit">
-          <option value="">单元</option>
-          {% for option in unit_options %}
-          <option value="{{ option }}" {% if filters.unit == option %}selected{% endif %}>{{ option }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-3">
-        <select class="form-select" name="lesson_type">
-          <option value="">课型</option>
-          {% for option in lesson_type_options %}
-          <option value="{{ option }}" {% if filters.lesson_type == option %}selected{% endif %}>{{ option }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-5 d-flex gap-2">
-        <button class="btn btn-outline-primary" type="submit">筛选 / 搜索</button>
-        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_list') }}">重置</a>
-      </div>
-    </form>
-  </div>
-</section>
+  </section>
 
-<section class="card app-card">
-  <div class="table-responsive knowledge-table-wrap">
-    <table class="table align-middle mb-0 knowledge-table">
-      <thead>
-        <tr>
-          <th>标题</th>
-          <th>资料信息</th>
-          <th>课型</th>
-          <th>解析信息</th>
-          <th>治理</th>
-          <th>索引状态</th>
-          <th>创建时间</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% if docs %}
-          {% for doc in docs %}
-          <tr>
-            <td class="knowledge-title-cell">{{ doc.title }}</td>
-            <td class="knowledge-info-cell">
-              <div class="knowledge-info-line">
-                <span>年级：{{ doc.grade or "—" }}</span>
-                <span>教材：{{ doc.textbook or "—" }}</span>
-              </div>
-              <div class="knowledge-info-line">
-                <span>册别：{{ doc.volume or "—" }}</span>
-                <span>单元：{{ doc.unit or "—" }}</span>
-              </div>
-              <div class="knowledge-info-line knowledge-tags-line">
-                <span>类型：{{ doc.doc_type or "—" }}</span>
-                <span>标签：{{ doc.tags or "—" }}</span>
-              </div>
-            </td>
-            <td>{{ doc.lesson_type or "—" }}</td>
-            <td class="knowledge-info-cell">
-              <div class="knowledge-info-line">
-                <span>字数：{{ doc.word_count }}</span>
-                <span>
-                  {% if doc.status == "parsed" %}
-                    <span class="badge text-bg-success">parsed</span>
-                  {% elif doc.status == "failed" %}
-                    <span class="badge text-bg-danger">failed</span>
-                  {% else %}
-                    <span class="badge text-bg-secondary">pending</span>
-                  {% endif %}
-                </span>
-              </div>
-            </td>
-            <td>
-              <div class="knowledge-info-line">
-                <span>质量：{{ doc.metadata_quality_score or 0 }}</span>
-                <span>{% if doc.metadata_reviewed %}<span class="badge text-bg-success">已确认</span>{% else %}<span class="badge text-bg-secondary">未确认</span>{% endif %}</span>
-              </div>
-              <div class="knowledge-info-line">
-                {% if doc.is_whole_book %}<span class="badge text-bg-warning">整本教材</span>{% endif %}
-                {% if doc.need_reindex %}<span class="badge text-bg-danger">需重索引</span>{% endif %}
-              </div>
-            </td>
-            <td>
-              <div class="knowledge-info-line">
-                <span>
-                  {% if doc.embedding_status == "indexed" %}
-                    <span class="badge text-bg-success">indexed</span>
-                  {% elif doc.embedding_status == "indexing" %}
-                    <span class="badge text-bg-warning">indexing</span>
-                  {% elif doc.embedding_status == "failed" %}
-                    <span class="badge text-bg-danger">failed</span>
-                  {% else %}
-                    <span class="badge text-bg-secondary">not_indexed</span>
-                  {% endif %}
-                </span>
-                <span>Chunk：{{ doc.chunk_count }}</span>
-              </div>
-            </td>
-            <td>{{ doc.created_at }}</td>
-            <td>
-              <div class="knowledge-action-stack">
-                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('knowledge.knowledge_detail', doc_id=doc.id) }}">查看</a>
-                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('knowledge.knowledge_download', doc_id=doc.id) }}">下载</a>
-                <form method="post" action="{{ url_for('knowledge.knowledge_reindex', doc_id=doc.id) }}">
-                  <button type="submit" class="btn btn-sm btn-outline-info">
-                    {% if doc.embedding_status == "indexed" %}重索引{% else %}索引{% endif %}
-                  </button>
-                </form>
-                {% if doc.embedding_status != "not_indexed" %}
-                <form method="post" action="{{ url_for('knowledge.knowledge_delete_index', doc_id=doc.id) }}">
-                  <button type="submit" class="btn btn-sm btn-outline-warning">删索引</button>
-                </form>
-                {% endif %}
-                <form method="post" action="{{ url_for('knowledge.knowledge_reparse', doc_id=doc.id) }}">
-                  <button type="submit" class="btn btn-sm btn-outline-warning">重解析</button>
-                </form>
-                <form method="post" action="{{ url_for('knowledge.knowledge_delete', doc_id=doc.id) }}" onsubmit="return confirm('确定删除该资料吗？此操作不可恢复。')">
-                  <button type="submit" class="btn btn-sm btn-outline-danger">删除</button>
-                </form>
-              </div>
-            </td>
-          </tr>
-          {% endfor %}
-        {% else %}
-          <tr>
-            <td colspan="8" class="text-center py-4 text-muted">暂无知识库资料，请先上传教学资料。</td>
-          </tr>
-        {% endif %}
-      </tbody>
-    </table>
+  {% if docs %}
+  <div class="knowledge-card-list">
+    {% for doc in docs %}
+    {% set is_placeholder = doc.is_placeholder %}
+    <article class="knowledge-doc-card {% if is_placeholder %}knowledge-doc-card-placeholder{% endif %}">
+      <div class="knowledge-doc-main">
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-1">
+          <h2 class="h6 mb-0 knowledge-doc-title">{{ doc.title }}</h2>
+          <span class="badge text-bg-light">{{ doc.doc_type or "—" }}</span>
+          {% if doc.is_whole_book %}<span class="badge text-bg-warning">整本教材</span>{% endif %}
+          {% if is_placeholder %}<span class="badge text-bg-secondary">资料占位</span>{% endif %}
+          {% if doc.need_reindex and not is_placeholder %}<span class="badge text-bg-danger">需要重索引</span>{% endif %}
+        </div>
+        <div class="knowledge-meta-line text-muted">
+          {{ doc.grade or "—" }} / {{ doc.textbook or "—" }} / {{ doc.volume or "—" }} / {{ doc.unit or "—" }} / {{ doc.lesson_type or "—" }}
+        </div>
+        <div class="knowledge-meta-line"><strong>标签：</strong>{{ doc.tags or "—" }}</div>
+      </div>
+
+      <div class="knowledge-doc-status">
+        <div class="knowledge-status-item">
+          <div class="small text-muted">解析状态</div>
+          <div>
+            {% if doc.status == "parsed" %}<span class="badge text-bg-success">parsed</span>
+            {% elif doc.status == "failed" %}<span class="badge text-bg-danger">failed</span>
+            {% else %}<span class="badge text-bg-secondary">pending</span>{% endif %}
+            <span class="small ms-1">字数 {{ doc.word_count }}</span>
+          </div>
+        </div>
+        <div class="knowledge-status-item">
+          <div class="small text-muted">向量状态</div>
+          <div>
+            {% if doc.embedding_status == "indexed" %}<span class="badge text-bg-success">indexed</span>
+            {% elif doc.embedding_status == "indexing" %}<span class="badge text-bg-warning">indexing</span>
+            {% elif doc.embedding_status == "failed" %}<span class="badge text-bg-danger">failed</span>
+            {% else %}<span class="badge text-bg-secondary">not_indexed</span>{% endif %}
+            <span class="small ms-1">Chunk {{ doc.chunk_count or 0 }}</span>
+          </div>
+        </div>
+        <div class="knowledge-status-item">
+          <div class="small text-muted">治理状态</div>
+          <div>
+            <span class="badge {% if (doc.metadata_quality_score or 0) >= 70 %}text-bg-success{% else %}text-bg-warning{% endif %}">
+              质量 {{ doc.metadata_quality_score or 0 }}
+            </span>
+            <span class="badge {% if doc.metadata_reviewed %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+              {% if doc.metadata_reviewed %}已确认{% else %}未确认{% endif %}
+            </span>
+          </div>
+        </div>
+        <div class="knowledge-status-item">
+          {% if is_placeholder %}
+          <span class="badge text-bg-secondary">等待补充资料</span>
+          {% elif doc.status == "parsed" and doc.embedding_status == "indexed" %}
+          <span class="badge text-bg-success">可用于检索</span>
+          {% elif doc.status == "parsed" and doc.embedding_status != "indexed" %}
+          <span class="badge text-bg-info">建议建立索引</span>
+          {% elif doc.metadata_quality_score and doc.metadata_quality_score < 70 %}
+          <span class="badge text-bg-warning">元信息待完善</span>
+          {% endif %}
+          {% if doc.is_whole_book %}
+          <div class="small text-muted mt-1">建议按 Unit 补充单元资料</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="knowledge-doc-actions">
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('knowledge.knowledge_detail', doc_id=doc.id) }}">查看</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('knowledge.knowledge_download', doc_id=doc.id) }}">下载</a>
+        <form method="post" action="{{ url_for('knowledge.knowledge_reindex', doc_id=doc.id) }}">
+          <button type="submit" class="btn btn-sm btn-outline-info">{% if doc.embedding_status == "indexed" %}重索引{% else %}索引{% endif %}</button>
+        </form>
+        <form method="post" action="{{ url_for('knowledge.knowledge_reparse', doc_id=doc.id) }}">
+          <button type="submit" class="btn btn-sm btn-outline-warning">重解析</button>
+        </form>
+        <form method="post" action="{{ url_for('knowledge.knowledge_suggest_metadata', doc_id=doc.id) }}">
+          <button type="submit" class="btn btn-sm btn-outline-secondary">建议元信息</button>
+        </form>
+        <form method="post" action="{{ url_for('knowledge.knowledge_delete', doc_id=doc.id) }}" onsubmit="return confirm('确定删除该资料吗？此操作不可恢复。')">
+          <button type="submit" class="btn btn-sm btn-outline-danger">删除</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
   </div>
-</section>
+  {% else %}
+  <section class="card app-card">
+    <div class="card-body text-center text-muted py-5">暂无知识库资料，请先上传教学资料。</div>
+  </section>
+  {% endif %}
+</div>
+</div>
 {% endblock %}

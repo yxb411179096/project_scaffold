@@ -63,6 +63,15 @@ VOLUME_OPTIONS = ["必修一", "必修二", "必修三", "选择性必修一", "
 UNIT_OPTIONS = ["Unit 1", "Unit 2", "Unit 3", "Unit 4", "Unit 5", "通用"]
 LESSON_TYPE_OPTIONS = ["Reading", "Grammar", "Writing", "Listening and Speaking", "Revision", "Vocabulary", "Other"]
 STATUS_OPTIONS = ["pending", "parsed", "failed"]
+SUPPLEMENT_TYPE_OPTIONS = [
+    ("textbook_content", "教材内容"),
+    ("reading_text", "Reading 课文"),
+    ("reading_plan", "Reading 教案"),
+    ("vocabulary", "词汇表"),
+    ("writing", "Writing 资料"),
+    ("grammar", "Grammar 资料"),
+    ("classroom_expressions", "课堂表达"),
+]
 
 
 def _blank_form():
@@ -77,6 +86,40 @@ def _blank_form():
         "tags": "",
         "raw_text": "",
     }
+
+
+def _supplement_recommendation(supplement_type, textbook="", volume="", unit="", theme=""):
+    label_map = dict(SUPPLEMENT_TYPE_OPTIONS)
+    kind = (supplement_type or "").strip()
+    if kind not in label_map:
+        kind = "reading_text"
+
+    rec = {
+        "supplement_type": kind,
+        "recommended_label": label_map.get(kind, "补充资料"),
+        "doc_type": "其他",
+        "lesson_type": "Other",
+        "title_suffix": label_map.get(kind, "补充资料"),
+        "tags": "",
+    }
+    if kind == "textbook_content":
+        rec.update({"doc_type": "教材", "lesson_type": "Other", "title_suffix": "教材内容", "tags": "教材,单元资料"})
+    elif kind == "reading_text":
+        rec.update({"doc_type": "课文", "lesson_type": "Reading", "title_suffix": "Reading 课文", "tags": "Reading,Reading and Thinking"})
+    elif kind == "reading_plan":
+        rec.update({"doc_type": "教案", "lesson_type": "Reading", "title_suffix": "Reading 教案", "tags": "教案,Reading"})
+    elif kind == "vocabulary":
+        rec.update({"doc_type": "词汇表", "lesson_type": "Vocabulary", "title_suffix": "词汇表", "tags": "词汇表,Vocabulary"})
+    elif kind == "writing":
+        rec.update({"doc_type": "写作范文", "lesson_type": "Writing", "title_suffix": "Writing 资料", "tags": "Writing,写作"})
+    elif kind == "grammar":
+        rec.update({"doc_type": "其他", "lesson_type": "Grammar", "title_suffix": "Grammar 资料", "tags": "Grammar,语法"})
+    elif kind == "classroom_expressions":
+        rec.update({"doc_type": "课堂表达", "lesson_type": "Other", "title_suffix": "课堂表达", "tags": "课堂表达,口语"})
+
+    prefix = "_".join([part for part in [textbook, volume, unit, theme] if part])
+    rec["title"] = f"{prefix}_{rec['title_suffix']}" if prefix else rec["title_suffix"]
+    return rec
 
 
 def _safe_remove(path_value):
@@ -168,18 +211,39 @@ def knowledge_list():
         "unit": str(request.args.get("unit") or "").strip(),
         "lesson_type": str(request.args.get("lesson_type") or "").strip(),
         "status": str(request.args.get("status") or "").strip(),
+        "placeholder_filter": str(request.args.get("placeholder_filter") or "").strip(),
     }
     docs = query_knowledge_documents(filters, limit=50)
     need_reindex_ids = {d["id"] for d in documents_need_reindex()}
+    enriched_docs = []
     for doc in docs:
         if int(doc.get("metadata_quality_score") or 0) == 0:
             updated = update_document_metadata_quality(doc)
             if updated:
                 doc.update(updated)
         doc["need_reindex"] = doc["id"] in need_reindex_ids
+        title = str(doc.get("title") or "")
+        tags = str(doc.get("tags") or "")
+        is_placeholder = (
+            str(doc.get("doc_type") or "") == "其他"
+            and ("资料占位" in title or "资料占位" in tags)
+        )
+        doc["is_placeholder"] = is_placeholder
+        if is_placeholder and int(doc.get("word_count") or 0) == 0:
+            doc["placeholder_note"] = "等待补充资料"
+        else:
+            doc["placeholder_note"] = ""
+        enriched_docs.append(doc)
+
+    placeholder_filter = filters.get("placeholder_filter")
+    if placeholder_filter == "hide":
+        enriched_docs = [d for d in enriched_docs if not d.get("is_placeholder")]
+    elif placeholder_filter == "only":
+        enriched_docs = [d for d in enriched_docs if d.get("is_placeholder")]
+
     return render_template(
         "knowledge_list.html",
-        docs=docs,
+        docs=enriched_docs,
         filters=filters,
         doc_type_options=DOC_TYPE_OPTIONS,
         grade_options=GRADE_OPTIONS,
@@ -194,7 +258,23 @@ def knowledge_list():
 @knowledge_bp.route("/knowledge/new", methods=["GET", "POST"])
 def knowledge_new():
     form_data = _blank_form()
-    if request.method == "GET":
+    supplement_type = str(request.args.get("supplement_type") or request.form.get("supplement_type") or "reading_text").strip()
+    action_after = str(request.args.get("action_after") or request.form.get("action_after") or "detail").strip()
+    coverage_return = {
+        "textbook": str(request.args.get("textbook") or request.form.get("coverage_textbook") or "").strip(),
+        "volume": str(request.args.get("volume") or request.form.get("coverage_volume") or "").strip(),
+        "unit": str(request.args.get("unit") or request.form.get("coverage_unit") or "").strip(),
+    }
+    query_theme = str(request.args.get("theme") or "").strip()
+
+    def _render_new():
+        rec = _supplement_recommendation(
+            supplement_type,
+            textbook=form_data.get("textbook") or coverage_return.get("textbook", ""),
+            volume=form_data.get("volume") or coverage_return.get("volume", ""),
+            unit=form_data.get("unit") or coverage_return.get("unit", ""),
+            theme=query_theme,
+        )
         return render_template(
             "knowledge_new.html",
             form_data=form_data,
@@ -204,7 +284,36 @@ def knowledge_new():
             volume_options=VOLUME_OPTIONS,
             unit_options=UNIT_OPTIONS,
             lesson_type_options=LESSON_TYPE_OPTIONS,
+            supplement_type_options=SUPPLEMENT_TYPE_OPTIONS,
+            selected_supplement_type=supplement_type,
+            action_after=action_after,
+            coverage_return=coverage_return,
+            recommended_label=rec["recommended_label"],
         )
+
+    if request.method == "GET":
+        for key in ("grade", "textbook", "volume", "unit"):
+            value = str(request.args.get(key) or "").strip()
+            if value:
+                form_data[key] = value
+        rec = _supplement_recommendation(
+            supplement_type,
+            textbook=form_data["textbook"],
+            volume=form_data["volume"],
+            unit=form_data["unit"],
+            theme=query_theme,
+        )
+        form_data["doc_type"] = str(request.args.get("doc_type") or rec["doc_type"]).strip()
+        form_data["lesson_type"] = str(request.args.get("lesson_type") or rec["lesson_type"]).strip()
+        form_data["tags"] = str(request.args.get("tags") or rec["tags"]).strip()
+        form_data["title"] = str(request.args.get("title") or rec["title"]).strip()
+        if not coverage_return["textbook"]:
+            coverage_return["textbook"] = form_data["textbook"]
+        if not coverage_return["volume"]:
+            coverage_return["volume"] = form_data["volume"]
+        if not coverage_return["unit"]:
+            coverage_return["unit"] = form_data["unit"]
+        return _render_new()
 
     form_data.update({key: str(request.form.get(key) or "").strip() for key in form_data.keys()})
     upload = request.files.get("file")
@@ -218,16 +327,7 @@ def knowledge_new():
         flash("请填写资料文本或上传资料文件。", "danger")
         has_error = True
     if has_error:
-        return render_template(
-            "knowledge_new.html",
-            form_data=form_data,
-            doc_type_options=DOC_TYPE_OPTIONS,
-            grade_options=GRADE_OPTIONS,
-            textbook_options=TEXTBOOK_OPTIONS,
-            volume_options=VOLUME_OPTIONS,
-            unit_options=UNIT_OPTIONS,
-            lesson_type_options=LESSON_TYPE_OPTIONS,
-        )
+        return _render_new()
 
     source_type = "text"
     file_name = ""
@@ -239,16 +339,7 @@ def knowledge_new():
         suffix = Path(safe_name).suffix.lower()
         if suffix not in SUPPORTED_MANUSCRIPT_EXTENSIONS:
             flash("不支持的文件格式，仅支持 txt / md / docx / pdf。", "danger")
-            return render_template(
-                "knowledge_new.html",
-                form_data=form_data,
-                doc_type_options=DOC_TYPE_OPTIONS,
-                grade_options=GRADE_OPTIONS,
-                textbook_options=TEXTBOOK_OPTIONS,
-                volume_options=VOLUME_OPTIONS,
-                unit_options=UNIT_OPTIONS,
-                lesson_type_options=LESSON_TYPE_OPTIONS,
-            )
+            return _render_new()
 
         unique_name = f"{now().replace(' ', '_').replace(':', '')}_{uuid.uuid4().hex[:8]}_{safe_name}"
         target_path = KNOWLEDGE_UPLOAD_DIR / unique_name
@@ -283,16 +374,7 @@ def knowledge_new():
     merged_text = clean_extracted_text("\n\n".join(part for part in [file_text, raw_text] if part.strip()))
     if not merged_text:
         flash("解析后的资料内容为空，请检查文件或输入文本。", "danger")
-        return render_template(
-            "knowledge_new.html",
-            form_data=form_data,
-            doc_type_options=DOC_TYPE_OPTIONS,
-            grade_options=GRADE_OPTIONS,
-            textbook_options=TEXTBOOK_OPTIONS,
-            volume_options=VOLUME_OPTIONS,
-            unit_options=UNIT_OPTIONS,
-            lesson_type_options=LESSON_TYPE_OPTIONS,
-        )
+        return _render_new()
 
     base_name = f"{secure_filename(form_data['title']) or 'knowledge'}_{uuid.uuid4().hex[:8]}"
     text_file_path = save_parsed_text(merged_text, KNOWLEDGE_TEXT_DIR, base_name)
@@ -307,7 +389,17 @@ def knowledge_new():
     )
     doc = create_knowledge_document(payload)
     update_document_metadata_quality(doc)
-    flash("知识资料已保存并解析完成。", "success")
+    if action_after in {"index_detail", "index_coverage"}:
+        index_result = index_knowledge_document(doc["id"])
+        if index_result.get("ok"):
+            flash("知识资料已保存并解析完成，且已建立向量索引。", "success")
+        else:
+            flash(f"知识资料已保存，但建立索引失败：{index_result.get('message','未知错误')}", "warning")
+    else:
+        flash("知识资料已保存并解析完成。", "success")
+
+    if action_after in {"coverage", "index_coverage"}:
+        return redirect(url_for("knowledge.knowledge_coverage", volume=coverage_return.get("volume") or ""))
     return redirect(url_for("knowledge.knowledge_detail", doc_id=doc["id"]))
 
 

@@ -39,7 +39,7 @@
     </div>
     <div class="table-responsive">
       <table class="table align-middle mb-0">
-        <thead><tr><th>Unit</th><th>Theme</th><th>教材</th><th>Reading</th><th>Vocabulary</th><th>教案</th><th>Writing</th><th>已索引</th><th>缺失建议</th></tr></thead>
+        <thead><tr><th>Unit</th><th>Theme</th><th>教材</th><th>Reading</th><th>Vocabulary</th><th>教案</th><th>Writing</th><th>已索引</th><th>缺失建议</th><th>补充资料</th></tr></thead>
         <tbody>
           {% for unit in group.units %}
           <tr>
@@ -52,6 +52,26 @@
             <td>{% if unit.has_writing %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-warning">无</span>{% endif %}</td>
             <td>{{ unit.indexed_count }}</td>
             <td>{{ unit.missing|join("、") if unit.missing else "覆盖完整" }}</td>
+            <td>
+              <form method="get" action="{{ url_for('knowledge.knowledge_new') }}" class="d-grid gap-2">
+                <input type="hidden" name="grade" value="高一">
+                <input type="hidden" name="textbook" value="{{ group.textbook }}">
+                <input type="hidden" name="volume" value="{{ group.volume }}">
+                <input type="hidden" name="unit" value="{{ unit.unit }}">
+                <input type="hidden" name="theme" value="{{ unit.theme }}">
+                <input type="hidden" name="action_after" value="coverage">
+                <select class="form-select form-select-sm" name="supplement_type">
+                  <option value="textbook_content">教材内容</option>
+                  <option value="reading_text">Reading 课文</option>
+                  <option value="reading_plan">Reading 教案</option>
+                  <option value="vocabulary">词汇表</option>
+                  <option value="writing">Writing 资料</option>
+                  <option value="grammar">Grammar 资料</option>
+                  <option value="classroom_expressions">课堂表达</option>
+                </select>
+                <button class="btn btn-sm btn-outline-primary" type="submit">补充资料</button>
+              </form>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
