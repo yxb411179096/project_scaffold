@@ -111,6 +111,11 @@
           {{ doc.grade or "—" }} / {{ doc.textbook or "—" }} / {{ doc.volume or "—" }} / {{ doc.unit or "—" }} / {{ doc.lesson_type or "—" }}
         </div>
         <div class="knowledge-meta-line"><strong>标签：</strong>{{ doc.tags or "—" }}</div>
+        {% if doc.textbook and doc.volume and doc.unit %}
+        <div class="knowledge-meta-line">
+          <a class="small" href="{{ url_for('knowledge.knowledge_coverage', volume=doc.volume, highlight_unit=doc.unit, highlight_volume=doc.volume) }}">查看 Unit 覆盖</a>
+        </div>
+        {% endif %}
       </div>
 
       <div class="knowledge-doc-status">

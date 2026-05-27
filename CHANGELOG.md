@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## 0.25.0
+- 新增“课件生成前知识库体检”能力：`services/lesson_readiness_service.py` 提供 `check_lesson_knowledge_readiness(lesson_request)`，输出准备度分数、状态（ready/warning/missing）、缺失项、建议和补资料链接。
+- 新增 `GET /ppt/knowledge-readiness` 路由，支持按教材/册别/单元/课型查询体检结果（JSON）。
+- `/ppt/new` 新建课件页增加知识库准备度提示入口，显示分数、状态、缺失项，并提供“去补充本单元资料”链接。
+- `/ppt/from-manuscript` 页面同样增加知识库准备度提示，保真模式下仅提示不阻断流程。
+- 课件创建时将 readiness 结果写入 `lesson_tasks.knowledge_context_json`（`readiness` 字段），编辑页新增“生成前知识库体检结果”展示。
+- 当资料不足时不阻止生成，仅提示风险；启用知识库增强且 readiness 为 missing/warning 时增加针对性提示。
+- 保持占位资料不计入 readiness 与覆盖有效性判断。
+- 新增 `tests_round_025.py`，覆盖 readiness 服务、`/ppt/knowledge-readiness`、新建/文案页提示、任务创建可继续且记录 readiness 等回归场景。
+
+## 0.24.0
+- 优化知识库补资料保存动作：`/knowledge/new` 明确为“保存 / 保存并建立索引 / 保存后返回覆盖情况 / 保存并索引后返回覆盖情况（推荐）”，并在从 coverage 进入时默认推荐“保存并索引后返回覆盖情况”。
+- 保存并索引失败时不影响资料保存，提示优化为“资料已保存，但索引失败，请稍后重试。”
+- 覆盖页支持补充后 Unit 高亮：返回 `/knowledge/coverage` 时带 `highlight_unit`/`highlight_volume`，页面显示成功提示并高亮对应 Unit 行。
+- 覆盖页新增“建议下一步”补充顺序与快捷补充按钮（教材内容 → Reading 课文 → Reading 教案 → 词汇表 → Writing → Grammar）。
+- 新增单元资料补齐面板：`GET /knowledge/unit-supplement`，按 Unit 展示资料包状态（是否已有、是否已索引、去补充/查看资料）。
+- 知识库详情页新增“返回该 Unit 覆盖情况”按钮；知识库列表卡片新增“查看 Unit 覆盖”链接。
+- 占位资料继续不计入真实覆盖：覆盖统计中排除占位记录，不再误判为教材/课文/教案/词汇/写作/语法已覆盖。
+- 新增 `tests_round_024.py`，覆盖 unit-supplement 页面、coverage 高亮参数、占位不计覆盖、保存并索引失败不丢资料、详情/列表覆盖入口等回归场景。
+
 ## 0.23.0
 - 新增单元资料补充工作流：在 `/knowledge/coverage` 每个 Unit 行增加“补充资料”入口，可选择补充类型（教材内容、Reading 课文、Reading 教案、词汇表、Writing、Grammar、课堂表达）。
 - `/knowledge/new` 支持从 query 参数自动预填年级、教材、册别、单元、推荐课型、推荐资料类型、推荐标题，并显示当前补充类型提示。

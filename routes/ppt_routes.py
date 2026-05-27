@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import uuid
 
-from flask import Blueprint, Response, abort, flash, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, Response, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from werkzeug.utils import secure_filename
 
 from models.database import (
@@ -53,6 +53,7 @@ from services.ppt_style_service import (
     style_display_name,
 )
 from services.textbook_catalog_service import build_catalog_course_title, enrich_lesson_request_with_catalog
+from services.lesson_readiness_service import check_lesson_knowledge_readiness
 
 ppt_bp = Blueprint("ppt", __name__)
 LESSON_TYPE_OPTIONS = [
@@ -534,10 +535,17 @@ def _knowledge_top_k_from_form(form, default=5):
 
 
 def _maybe_build_knowledge_context(task, manuscript_text=None):
+    readiness = None
+    existing_payload = load_knowledge_context(task.get("knowledge_context_json") or task.get("knowledge_context")) or {}
+    if isinstance(existing_payload, dict):
+        readiness = existing_payload.get("readiness")
+
     if not task.get("use_knowledge_base"):
+        if readiness:
+            task["knowledge_context_json"] = json.dumps({"readiness": readiness}, ensure_ascii=False)
         return None
 
-    existing = load_knowledge_context(task.get("knowledge_context_json") or task.get("knowledge_context"))
+    existing = existing_payload
     if existing:
         task["knowledge_context"] = existing
         task["knowledge_context_json"] = json.dumps(existing, ensure_ascii=False)
@@ -551,11 +559,20 @@ def _maybe_build_knowledge_context(task, manuscript_text=None):
         top_k=task.get("knowledge_top_k") or 5,
         manuscript_text=manuscript_text,
     )
+    if readiness:
+        context["readiness"] = readiness
     task["knowledge_context"] = context
     task["knowledge_context_json"] = json.dumps(context, ensure_ascii=False)
     task["knowledge_query"] = context.get("query") or task.get("knowledge_query") or ""
     task["knowledge_top_k"] = context.get("top_k") or task.get("knowledge_top_k") or 5
     return context
+
+
+def _readiness_from_task(task):
+    context = load_knowledge_context(task.get("knowledge_context_json") or task.get("knowledge_context")) or {}
+    if isinstance(context, dict):
+        return context.get("readiness") or {}
+    return {}
 
 
 def normalize_relaxed_level(value):
@@ -817,9 +834,11 @@ def new_task():
         form = request.form.to_dict()
         form["course_title"] = _derive_catalog_title(form)
         form["ppt_style"] = _resolve_ppt_style(form)
+        readiness_result = check_lesson_knowledge_readiness(form)
         use_knowledge_base = _form_knowledge_enabled(request.form)
         knowledge_top_k = _knowledge_top_k_from_form(request.form)
         knowledge_query = str(request.form.get("knowledge_query") or "").strip()
+        base_context = {"readiness": readiness_result}
         with get_db() as conn:
             cur = conn.execute(
                 """
@@ -842,7 +861,7 @@ def new_task():
                     1 if use_knowledge_base else 0,
                     knowledge_query,
                     knowledge_top_k,
-                    "",
+                    json.dumps(base_context, ensure_ascii=False),
                     "ai_generate",
                     "",
                     "",
@@ -864,10 +883,16 @@ def new_task():
         task["use_knowledge_base"] = use_knowledge_base
         task["knowledge_query"] = knowledge_query
         task["knowledge_top_k"] = knowledge_top_k
-        task["knowledge_context_json"] = ""
+        task["knowledge_context_json"] = json.dumps(base_context, ensure_ascii=False)
         knowledge_context = _maybe_build_knowledge_context(task)
         if knowledge_context is not None:
             update_lesson_task(task_id, task)
+        if readiness_result.get("status") != "ready":
+            flash("当前知识库资料不足，生成结果可能偏通用。建议补充资料后再生成。", "warning")
+        if use_knowledge_base and readiness_result.get("status") == "missing":
+            flash("当前单元缺少可用索引资料，知识库增强可能无法发挥作用。", "warning")
+        elif use_knowledge_base and readiness_result.get("status") == "warning":
+            flash("当前仅有整本教材或资料不完整，建议补充单元级资料。", "warning")
         slides = generate_slides(task)
         if not slides:
             with get_db() as conn:
@@ -881,6 +906,16 @@ def new_task():
 
         flash(f"课件任务已创建，已生成结构化 slide 内容。当前生成方式: {generation_mode_label()}")
         return redirect(url_for("ppt.edit_task", task_id=task_id))
+    initial_readiness = check_lesson_knowledge_readiness(
+        {
+            "textbook": "人教版",
+            "grade": "高一",
+            "volume": "必修一",
+            "unit": "",
+            "lesson_type": "Reading",
+            "topic": "",
+        }
+    )
     return render_template(
         "new_task.html",
         lesson_type_options=LESSON_TYPE_OPTIONS,
@@ -889,12 +924,43 @@ def new_task():
         style_options=STYLE_OPTIONS,
         ppt_style_options=PPT_STYLE_OPTIONS,
         recommended_ppt_style=recommend_style_key("Reading", "常规课"),
+        readiness_result=initial_readiness,
     )
+
+
+@ppt_bp.route("/ppt/knowledge-readiness")
+def ppt_knowledge_readiness():
+    payload = {
+        "textbook": str(request.args.get("textbook") or "").strip(),
+        "grade": str(request.args.get("grade") or "").strip(),
+        "volume": str(request.args.get("volume") or "").strip(),
+        "unit": str(request.args.get("unit") or "").strip(),
+        "lesson_type": str(request.args.get("lesson_type") or "").strip(),
+        "topic": str(request.args.get("topic") or "").strip(),
+    }
+    result = check_lesson_knowledge_readiness(payload)
+    return jsonify(result)
 
 
 @ppt_bp.route("/ppt/from-manuscript", methods=["GET", "POST"])
 def from_manuscript():
     form_data = blank_manuscript_form()
+
+    def _render_from_manuscript():
+        readiness = check_lesson_knowledge_readiness(form_data)
+        return render_template(
+            "from_manuscript.html",
+            form_data=form_data,
+            lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
+            volume_options=VOLUME_OPTIONS,
+            student_level_options=STUDENT_LEVEL_OPTIONS,
+            style_options=STYLE_OPTIONS,
+            ppt_style_options=PPT_STYLE_OPTIONS,
+            manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
+            preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
+            preserve_polish_options=PRESERVE_POLISH_OPTIONS,
+            readiness_result=readiness,
+        )
 
     if request.method == "POST":
         form_data.update(request.form.to_dict())
@@ -910,18 +976,7 @@ def from_manuscript():
 
         if not manuscript_text and (uploaded_file is None or not uploaded_file.filename):
             flash("请粘贴文案内容或上传一个文档文件。", "warning")
-            return render_template(
-                "from_manuscript.html",
-                form_data=form_data,
-                lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
-                volume_options=VOLUME_OPTIONS,
-                student_level_options=STUDENT_LEVEL_OPTIONS,
-                style_options=STYLE_OPTIONS,
-                ppt_style_options=PPT_STYLE_OPTIONS,
-                manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
-                preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
-                preserve_polish_options=PRESERVE_POLISH_OPTIONS,
-            )
+            return _render_from_manuscript()
 
         if uploaded_file and uploaded_file.filename:
             try:
@@ -929,34 +984,12 @@ def from_manuscript():
                 file_text = extract_text_from_file(saved_path, source_name)
             except DocumentParseError:
                 flash("文案解析失败，请检查文件格式或粘贴文本内容。", "danger")
-                return render_template(
-                    "from_manuscript.html",
-                    form_data=form_data,
-                    lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
-                    volume_options=VOLUME_OPTIONS,
-                    student_level_options=STUDENT_LEVEL_OPTIONS,
-                    style_options=STYLE_OPTIONS,
-                    ppt_style_options=PPT_STYLE_OPTIONS,
-                    manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
-                    preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
-                    preserve_polish_options=PRESERVE_POLISH_OPTIONS,
-                )
+                return _render_from_manuscript()
 
         combined_text = "\n\n".join(part for part in [file_text, manuscript_text] if str(part).strip()).strip()
         if not combined_text:
             flash("文案解析失败，请检查文件格式或粘贴文本内容。", "danger")
-            return render_template(
-                "from_manuscript.html",
-                form_data=form_data,
-                lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
-                volume_options=VOLUME_OPTIONS,
-                student_level_options=STUDENT_LEVEL_OPTIONS,
-                style_options=STYLE_OPTIONS,
-                ppt_style_options=PPT_STYLE_OPTIONS,
-                manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
-                preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
-                preserve_polish_options=PRESERVE_POLISH_OPTIONS,
-            )
+            return _render_from_manuscript()
 
         generation_mode = (
             MANUSCRIPT_GENERATION_MODES["mixed"]
@@ -986,8 +1019,13 @@ def from_manuscript():
         form_data["manuscript_preserve_completion_mode"] = selected_completion_mode
         form_data["manuscript_preserve_polish_mode"] = selected_polish_mode
         source_word_count = count_source_words(combined_text)
+        readiness_result = check_lesson_knowledge_readiness(form_data)
         if len("".join(combined_text.split())) < 100:
             flash("文案内容较短，系统将自动补充基础教学流程。", "warning")
+        if form_data["use_knowledge_base"] and readiness_result.get("status") == "missing":
+            flash("当前单元缺少可用索引资料，知识库增强可能无法发挥作用。", "warning")
+        elif form_data["use_knowledge_base"] and readiness_result.get("status") == "warning":
+            flash("当前仅有整本教材或资料不完整，建议补充单元级资料。", "warning")
 
         with get_db() as conn:
             cur = conn.execute(
@@ -1011,7 +1049,7 @@ def from_manuscript():
                     1 if form_data["use_knowledge_base"] else 0,
                     form_data["knowledge_query"],
                     _knowledge_top_k_from_form(request.form),
-                    "",
+                    json.dumps({"readiness": readiness_result}, ensure_ascii=False),
                     generation_mode,
                     selected_strategy,
                     selected_completion_mode,
@@ -1041,7 +1079,7 @@ def from_manuscript():
         task["use_knowledge_base"] = form_data["use_knowledge_base"]
         task["knowledge_query"] = form_data["knowledge_query"]
         task["knowledge_top_k"] = _knowledge_top_k_from_form(request.form)
-        task["knowledge_context_json"] = ""
+        task["knowledge_context_json"] = json.dumps({"readiness": readiness_result}, ensure_ascii=False)
 
         knowledge_context = _maybe_build_knowledge_context(task, combined_text)
         if knowledge_context is not None:
@@ -1054,18 +1092,7 @@ def from_manuscript():
                 conn.execute("DELETE FROM ppt_slides WHERE task_id=?", (task_id,))
                 conn.execute("DELETE FROM lesson_tasks WHERE id=?", (task_id,))
             flash("文案转 PPT 失败：没有生成有效幻灯片。", "danger")
-            return render_template(
-                "from_manuscript.html",
-                form_data=form_data,
-                lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
-                volume_options=VOLUME_OPTIONS,
-                student_level_options=STUDENT_LEVEL_OPTIONS,
-                style_options=STYLE_OPTIONS,
-                ppt_style_options=PPT_STYLE_OPTIONS,
-                manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
-                preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
-                preserve_polish_options=PRESERVE_POLISH_OPTIONS,
-            )
+            return _render_from_manuscript()
 
         with get_db() as conn:
             persist_manuscript_result(conn, task_id, slides, result, form_data.get("lesson_type"))
@@ -1073,18 +1100,7 @@ def from_manuscript():
         flash(f"文案已转换为结构化课件。当前生成方式: {generation_mode_label()}")
         return redirect(url_for("ppt.edit_task", task_id=task_id))
 
-    return render_template(
-        "from_manuscript.html",
-        form_data=form_data,
-        lesson_type_options=MANUSCRIPT_LESSON_TYPE_OPTIONS,
-        volume_options=VOLUME_OPTIONS,
-        student_level_options=STUDENT_LEVEL_OPTIONS,
-        style_options=STYLE_OPTIONS,
-        ppt_style_options=PPT_STYLE_OPTIONS,
-        manuscript_strategy_options=MANUSCRIPT_STRATEGY_OPTIONS,
-        preserve_completion_options=PRESERVE_COMPLETION_OPTIONS,
-        preserve_polish_options=PRESERVE_POLISH_OPTIONS,
-    )
+    return _render_from_manuscript()
 
 
 @ppt_bp.route("/ppt/tasks")
@@ -1172,6 +1188,7 @@ def edit_task(task_id):
     slide_json_preview = json.dumps(slides, ensure_ascii=False, indent=2)
     manuscript_preview, manuscript_analysis = build_manuscript_preview(task)
     knowledge_context_view = _knowledge_context_view(task)
+    readiness_result = _readiness_from_task(task)
     llm_call_logs = list(reversed(list_llm_call_logs(task_id, limit=60)))
     for log in llm_call_logs:
         log["agent_label"] = agent_display_name(log.get("agent_name"))
@@ -1189,6 +1206,7 @@ def edit_task(task_id):
         manuscript_preview=manuscript_preview,
         manuscript_analysis=manuscript_analysis,
         knowledge_context_view=knowledge_context_view,
+        readiness_result=readiness_result,
         selected_slide=selected_slide,
         slide_json_preview=slide_json_preview,
         llm_call_logs=llm_call_logs,

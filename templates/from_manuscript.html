@@ -119,6 +119,16 @@
             </div>
             <div class="form-text">启用后，系统会结合用户文案与知识库资料生成课件参考内容。</div>
           </div>
+          <div class="col-12">
+            <div id="readiness_panel" class="info-strip">
+              知识库准备度：{{ readiness_result.score if readiness_result else 0 }}/100 · 状态：{{ readiness_result.status if readiness_result else 'unknown' }}
+            </div>
+            <div id="readiness_detail" class="small text-muted mt-1"></div>
+            <div class="d-flex gap-2 mt-2">
+              <button type="button" class="btn btn-sm btn-outline-primary" id="check_readiness_btn">检查知识库准备情况</button>
+              <a class="btn btn-sm btn-outline-secondary" id="readiness_unit_link" href="#">去补充本单元资料</a>
+            </div>
+          </div>
           <div class="col-md-4">
             <label class="form-label">knowledge_top_k</label>
             <input name="knowledge_top_k" type="number" class="form-control" min="1" max="10" value="{{ form_data.knowledge_top_k }}">
@@ -160,6 +170,10 @@
   const styleSelect = document.querySelector('select[name="style"]');
   const pptStyleSelect = document.getElementById('ppt_style');
   const userSelectedInput = document.getElementById('manuscript_generation_strategy_user_selected');
+  const readinessBtn = document.getElementById('check_readiness_btn');
+  const readinessPanel = document.getElementById('readiness_panel');
+  const readinessDetail = document.getElementById('readiness_detail');
+  const unitLink = document.getElementById('readiness_unit_link');
   if (!textarea || !strategySelect) return;
   const markerPattern = /(第\s*\d+\s*页|page\s*\d+|slide\s*\d+|幻灯片\s*\d+|[一二三四五六七八九十]+[、.．]\s*(封面|学习目标|导入|总结|作业))/i;
   let manualChanged = false;
@@ -200,6 +214,27 @@
     styleSelect.addEventListener('change', updatePreset);
     updatePreset();
   }
+
+  const updateReadiness = async () => {
+    const params = new URLSearchParams({
+      textbook: document.querySelector('[name="textbook"]')?.value || '',
+      grade: document.querySelector('[name="grade"]')?.value || '',
+      volume: document.querySelector('[name="volume"]')?.value || '',
+      unit: document.querySelector('[name="unit"]')?.value || '',
+      lesson_type: lessonTypeSelect?.value || '',
+      topic: document.querySelector('[name="course_title"]')?.value || '',
+    });
+    const res = await fetch(`/ppt/knowledge-readiness?${params.toString()}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    readinessPanel.textContent = `知识库准备度：${data.score}/100 · 状态：${data.status}`;
+    readinessPanel.className = data.status === 'ready' ? 'info-strip quality-ok' : (data.status === 'warning' ? 'info-strip quality-warning' : 'info-strip quality-critical');
+    readinessDetail.textContent = (data.missing || []).length ? `缺失：${data.missing.join('、')}` : '资料基本充足。';
+    if (data.supplement_links && data.supplement_links.length) {
+      unitLink.href = data.supplement_links[0].url;
+    }
+  };
+  if (readinessBtn) readinessBtn.addEventListener('click', updateReadiness);
 })();
 </script>
 {% endblock %}

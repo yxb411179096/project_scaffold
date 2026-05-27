@@ -168,6 +168,35 @@
     </section>
     {% endif %}
 
+    {% if readiness_result %}
+    <section class="app-card p-4 mb-4">
+      <div class="section-kicker">Readiness</div>
+      <h2 class="section-title mb-3">生成前知识库体检结果</h2>
+      <div class="meta-grid mb-3">
+        <div class="meta-card">
+          <div class="meta-label">准备度分数</div>
+          <div class="meta-value">{{ readiness_result.score }}/100</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">状态</div>
+          <div class="meta-value">{{ readiness_result.status }}</div>
+        </div>
+        <div class="meta-card">
+          <div class="meta-label">命中索引资料</div>
+          <div class="meta-value">{{ readiness_result.indexed_count or 0 }}</div>
+        </div>
+      </div>
+      {% if readiness_result.missing %}
+      <div class="warning-note mb-2">缺失项：{{ readiness_result.missing|join('、') }}</div>
+      {% else %}
+      <div class="info-strip mb-2">本次生成前未发现关键缺失项。</div>
+      {% endif %}
+      {% if readiness_result.supplement_links and readiness_result.supplement_links[0] %}
+      <a class="btn btn-sm btn-outline-secondary" href="{{ readiness_result.supplement_links[0].url }}">去补充本单元资料</a>
+      {% endif %}
+    </section>
+    {% endif %}
+
     <section class="app-card p-4 mb-4">
       <div class="section-kicker">Knowledge Context</div>
       <h2 class="section-title mb-3">知识库参考资料</h2>

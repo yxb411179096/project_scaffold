@@ -81,10 +81,10 @@
         <input class="form-control" type="file" name="file" accept=".txt,.md,.docx,.pdf">
       </div>
       <div class="col-12 d-flex gap-2">
-        <button type="submit" name="action_after" value="detail" class="btn btn-primary">保存后查看详情</button>
+        <button type="submit" name="action_after" value="detail" class="btn btn-outline-primary">保存</button>
         <button type="submit" name="action_after" value="index_detail" class="btn btn-outline-success">保存并建立索引</button>
-        <button type="submit" name="action_after" value="coverage" class="btn btn-outline-secondary">保存后返回该 Unit 覆盖</button>
-        <button type="submit" name="action_after" value="index_coverage" class="btn btn-outline-secondary">保存+索引后返回覆盖</button>
+        <button type="submit" name="action_after" value="coverage" class="btn btn-outline-secondary">保存后返回覆盖情况</button>
+        <button type="submit" name="action_after" value="index_coverage" class="btn {% if action_after == 'index_coverage' %}btn-primary{% else %}btn-outline-secondary{% endif %}">保存并索引后返回覆盖情况（推荐）</button>
         <a href="{{ url_for('knowledge.knowledge_list') }}" class="btn btn-outline-secondary">返回列表</a>
       </div>
     </form>

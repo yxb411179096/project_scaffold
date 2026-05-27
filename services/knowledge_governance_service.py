@@ -237,6 +237,7 @@ def get_knowledge_coverage():
                 has_vocab = any(_clean(d.get("lesson_type")) == "Vocabulary" or d.get("doc_type") == "词汇表" for d in effective_docs)
                 has_plan = any(d.get("doc_type") in {"教案", "讲稿", "说课稿"} for d in effective_docs)
                 has_writing = any(_clean(d.get("lesson_type")) == "Writing" for d in effective_docs)
+                has_grammar = any(_clean(d.get("lesson_type")) == "Grammar" for d in effective_docs)
                 missing = []
                 if not has_reading:
                     missing.append("Reading")
@@ -246,6 +247,8 @@ def get_knowledge_coverage():
                     missing.append("教案")
                 if not has_writing:
                     missing.append("Writing")
+                if not has_grammar:
+                    missing.append("Grammar")
                 unit_rows.append(
                     {
                         "unit": unit,
@@ -256,6 +259,7 @@ def get_knowledge_coverage():
                         "has_vocabulary": has_vocab,
                         "has_lesson_plan": has_plan,
                         "has_writing": has_writing,
+                        "has_grammar": has_grammar,
                         "indexed_count": sum(1 for d in effective_docs if d.get("embedding_status") == "indexed"),
                         "missing": missing,
                         "doc_count": len(effective_docs),

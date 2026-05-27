@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <h1 class="h4 mb-1">单元资料补齐面板</h1>
+        <p class="text-muted mb-0">{{ textbook }} · {{ volume }} · {{ unit }}{% if target_unit.theme %} · {{ target_unit.theme }}{% endif %}</p>
+      </div>
+      <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_coverage', volume=volume, highlight_unit=unit, highlight_volume=volume) }}">返回覆盖情况</a>
+    </div>
+  </div>
+</section>
+
+<section class="card app-card">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead><tr><th>资料类型</th><th>状态</th><th>索引</th><th>操作</th></tr></thead>
+        <tbody>
+          {% for item in panel_items %}
+          <tr>
+            <td>{{ item.label }}</td>
+            <td>{% if item.has_item %}<span class="badge text-bg-success">已有</span>{% else %}<span class="badge text-bg-warning">缺失</span>{% endif %}</td>
+            <td>{% if item.indexed %}<span class="badge text-bg-success">已索引</span>{% elif item.has_item %}<span class="badge text-bg-secondary">未索引</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+            <td class="d-flex gap-2 flex-wrap">
+              {% if item.has_item and item.doc %}
+              <a class="btn btn-sm btn-outline-primary" href="{{ url_for('knowledge.knowledge_detail', doc_id=item.doc.id) }}">查看资料</a>
+              {% endif %}
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('knowledge.knowledge_new', grade='高一', textbook=textbook, volume=volume, unit=unit, theme=target_unit.theme or '', supplement_type=item.supplement_type, action_after='index_coverage') }}">去补充</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if placeholder_docs %}
+    <div class="alert alert-secondary mt-3 mb-0">
+      当前单元存在 {{ placeholder_docs|length }} 条占位记录（不计入覆盖），可直接通过“去补充”补齐真实资料。
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

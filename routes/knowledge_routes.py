@@ -122,6 +122,28 @@ def _supplement_recommendation(supplement_type, textbook="", volume="", unit="",
     return rec
 
 
+def _is_placeholder_doc(doc):
+    return (
+        str(doc.get("doc_type") or "") == "其他"
+        and ("资料占位" in str(doc.get("title") or "") or "资料占位" in str(doc.get("tags") or ""))
+    )
+
+
+def _recommend_next_supplement(unit_row):
+    checks = [
+        ("has_textbook", "textbook_content", "教材内容"),
+        ("has_reading", "reading_text", "Reading 课文"),
+        ("has_lesson_plan", "reading_plan", "Reading 教案"),
+        ("has_vocabulary", "vocabulary", "词汇表"),
+        ("has_writing", "writing", "Writing 资料"),
+        ("has_grammar", "grammar", "Grammar 资料"),
+    ]
+    for key, stype, label in checks:
+        if not unit_row.get(key):
+            return {"supplement_type": stype, "label": label}
+    return {"supplement_type": "classroom_expressions", "label": "课堂表达"}
+
+
 def _safe_remove(path_value):
     if not path_value:
         return
@@ -259,13 +281,16 @@ def knowledge_list():
 def knowledge_new():
     form_data = _blank_form()
     supplement_type = str(request.args.get("supplement_type") or request.form.get("supplement_type") or "reading_text").strip()
-    action_after = str(request.args.get("action_after") or request.form.get("action_after") or "detail").strip()
+    action_after = str(request.args.get("action_after") or request.form.get("action_after") or "").strip()
     coverage_return = {
         "textbook": str(request.args.get("textbook") or request.form.get("coverage_textbook") or "").strip(),
         "volume": str(request.args.get("volume") or request.form.get("coverage_volume") or "").strip(),
         "unit": str(request.args.get("unit") or request.form.get("coverage_unit") or "").strip(),
     }
     query_theme = str(request.args.get("theme") or "").strip()
+    from_coverage = bool(coverage_return["textbook"] and coverage_return["volume"] and coverage_return["unit"])
+    if not action_after:
+        action_after = "index_coverage" if from_coverage else "detail"
 
     def _render_new():
         rec = _supplement_recommendation(
@@ -394,12 +419,19 @@ def knowledge_new():
         if index_result.get("ok"):
             flash("知识资料已保存并解析完成，且已建立向量索引。", "success")
         else:
-            flash(f"知识资料已保存，但建立索引失败：{index_result.get('message','未知错误')}", "warning")
+            flash(f"资料已保存，但索引失败，请稍后重试。原因：{index_result.get('message','未知错误')}", "warning")
     else:
         flash("知识资料已保存并解析完成。", "success")
 
     if action_after in {"coverage", "index_coverage"}:
-        return redirect(url_for("knowledge.knowledge_coverage", volume=coverage_return.get("volume") or ""))
+        return redirect(
+            url_for(
+                "knowledge.knowledge_coverage",
+                volume=coverage_return.get("volume") or "",
+                highlight_unit=coverage_return.get("unit") or "",
+                highlight_volume=coverage_return.get("volume") or "",
+            )
+        )
     return redirect(url_for("knowledge.knowledge_detail", doc_id=doc["id"]))
 
 
@@ -655,14 +687,91 @@ def knowledge_governance():
 @knowledge_bp.route("/knowledge/coverage")
 def knowledge_coverage():
     volume_filter = str(request.args.get("volume") or "").strip()
+    highlight_unit = str(request.args.get("highlight_unit") or "").strip()
+    highlight_volume = str(request.args.get("highlight_volume") or "").strip()
     coverage = get_knowledge_coverage().get("textbooks", [])
     if volume_filter:
         coverage = [group for group in coverage if group.get("volume") == volume_filter]
+    for group in coverage:
+        for unit in group.get("units", []):
+            unit["next_recommendation"] = _recommend_next_supplement(unit)
+            unit["is_highlighted"] = bool(
+                highlight_unit and unit.get("unit") == highlight_unit and group.get("volume") == highlight_volume
+            )
+    highlight_message = ""
+    if highlight_unit:
+        highlight_message = f"已补充 {highlight_unit} 资料，请查看覆盖状态是否更新。"
     return render_template(
         "knowledge_coverage.html",
         groups=coverage,
         volume_options=VOLUME_OPTIONS,
         volume_filter=volume_filter,
+        highlight_unit=highlight_unit,
+        highlight_volume=highlight_volume,
+        highlight_message=highlight_message,
+    )
+
+
+@knowledge_bp.route("/knowledge/unit-supplement")
+def knowledge_unit_supplement():
+    textbook = str(request.args.get("textbook") or "人教版").strip()
+    volume = str(request.args.get("volume") or "必修二").strip()
+    unit = str(request.args.get("unit") or "Unit 3").strip()
+    coverage_groups = get_knowledge_coverage().get("textbooks", [])
+    target_unit = None
+    for group in coverage_groups:
+        if group.get("textbook") == textbook and group.get("volume") == volume:
+            for row in group.get("units", []):
+                if row.get("unit") == unit:
+                    target_unit = row
+                    break
+    target_unit = target_unit or {
+        "unit": unit,
+        "theme": "",
+        "has_textbook": False,
+        "has_reading": False,
+        "has_vocabulary": False,
+        "has_lesson_plan": False,
+        "has_writing": False,
+        "has_grammar": False,
+        "indexed_count": 0,
+        "missing": [],
+    }
+
+    all_docs = query_knowledge_documents({"textbook": textbook, "volume": volume, "unit": unit}, limit=200)
+    effective_docs = [d for d in all_docs if not _is_placeholder_doc(d)]
+    placeholder_docs = [d for d in all_docs if _is_placeholder_doc(d)]
+
+    pack = [
+        ("教材内容", "textbook_content", lambda d: d.get("doc_type") == "教材"),
+        ("Reading 课文", "reading_text", lambda d: str(d.get("lesson_type") or "") == "Reading"),
+        ("Reading 教案", "reading_plan", lambda d: d.get("doc_type") in {"教案", "讲稿", "说课稿"} and str(d.get("lesson_type") or "") == "Reading"),
+        ("词汇表", "vocabulary", lambda d: d.get("doc_type") == "词汇表" or str(d.get("lesson_type") or "") == "Vocabulary"),
+        ("Writing 资料", "writing", lambda d: str(d.get("lesson_type") or "") == "Writing"),
+        ("Grammar 资料", "grammar", lambda d: str(d.get("lesson_type") or "") == "Grammar"),
+        ("课堂表达", "classroom_expressions", lambda d: d.get("doc_type") == "课堂表达"),
+    ]
+    panel_items = []
+    for label, stype, matcher in pack:
+        matched = [d for d in effective_docs if matcher(d)]
+        panel_items.append(
+            {
+                "label": label,
+                "supplement_type": stype,
+                "has_item": bool(matched),
+                "indexed": any(d.get("embedding_status") == "indexed" for d in matched),
+                "doc": matched[0] if matched else None,
+            }
+        )
+
+    return render_template(
+        "knowledge_unit_supplement.html",
+        textbook=textbook,
+        volume=volume,
+        unit=unit,
+        target_unit=target_unit,
+        panel_items=panel_items,
+        placeholder_docs=placeholder_docs,
     )
 
 

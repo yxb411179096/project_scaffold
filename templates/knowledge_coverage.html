@@ -23,6 +23,9 @@
         <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_coverage') }}">重置</a>
       </div>
     </form>
+    {% if highlight_message %}
+    <div class="alert alert-success mt-3 mb-0">{{ highlight_message }}</div>
+    {% endif %}
   </div>
 </section>
 
@@ -39,10 +42,10 @@
     </div>
     <div class="table-responsive">
       <table class="table align-middle mb-0">
-        <thead><tr><th>Unit</th><th>Theme</th><th>教材</th><th>Reading</th><th>Vocabulary</th><th>教案</th><th>Writing</th><th>已索引</th><th>缺失建议</th><th>补充资料</th></tr></thead>
+        <thead><tr><th>Unit</th><th>Theme</th><th>教材</th><th>Reading</th><th>Vocabulary</th><th>教案</th><th>Writing</th><th>Grammar</th><th>已索引</th><th>缺失建议</th><th>补充资料</th></tr></thead>
         <tbody>
           {% for unit in group.units %}
-          <tr>
+          <tr {% if unit.is_highlighted %}class="table-success"{% endif %}>
             <td>{{ unit.unit }}</td>
             <td>{{ unit.theme or "—" }}</td>
             <td>{% if unit.has_textbook %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-secondary">无</span>{% endif %}</td>
@@ -50,8 +53,15 @@
             <td>{% if unit.has_vocabulary %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-warning">无</span>{% endif %}</td>
             <td>{% if unit.has_lesson_plan %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-warning">无</span>{% endif %}</td>
             <td>{% if unit.has_writing %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-warning">无</span>{% endif %}</td>
+            <td>{% if unit.has_grammar %}<span class="badge text-bg-success">有</span>{% else %}<span class="badge text-bg-warning">无</span>{% endif %}</td>
             <td>{{ unit.indexed_count }}</td>
-            <td>{{ unit.missing|join("、") if unit.missing else "覆盖完整" }}</td>
+            <td>
+              <div>{{ unit.missing|join("、") if unit.missing else "覆盖完整" }}</div>
+              {% if unit.next_recommendation %}
+              <div class="small text-muted mt-1">建议下一步：补充 {{ unit.next_recommendation.label }}</div>
+              <a class="btn btn-sm btn-outline-info mt-1" href="{{ url_for('knowledge.knowledge_new', grade='高一', textbook=group.textbook, volume=group.volume, unit=unit.unit, theme=unit.theme or '', supplement_type=unit.next_recommendation.supplement_type, action_after='index_coverage') }}">快捷补充</a>
+              {% endif %}
+            </td>
             <td>
               <form method="get" action="{{ url_for('knowledge.knowledge_new') }}" class="d-grid gap-2">
                 <input type="hidden" name="grade" value="高一">
@@ -59,7 +69,7 @@
                 <input type="hidden" name="volume" value="{{ group.volume }}">
                 <input type="hidden" name="unit" value="{{ unit.unit }}">
                 <input type="hidden" name="theme" value="{{ unit.theme }}">
-                <input type="hidden" name="action_after" value="coverage">
+                <input type="hidden" name="action_after" value="index_coverage">
                 <select class="form-select form-select-sm" name="supplement_type">
                   <option value="textbook_content">教材内容</option>
                   <option value="reading_text">Reading 课文</option>
@@ -71,6 +81,7 @@
                 </select>
                 <button class="btn btn-sm btn-outline-primary" type="submit">补充资料</button>
               </form>
+              <a class="btn btn-sm btn-outline-secondary mt-2" href="{{ url_for('knowledge.knowledge_unit_supplement', textbook=group.textbook, volume=group.volume, unit=unit.unit) }}">补齐本单元资料</a>
             </td>
           </tr>
           {% endfor %}
