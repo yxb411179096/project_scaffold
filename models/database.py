@@ -492,6 +492,37 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_unit_drafts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_document_id INTEGER NOT NULL,
+                unit TEXT,
+                theme TEXT,
+                draft_type TEXT,
+                suggested_title TEXT,
+                suggested_doc_type TEXT,
+                suggested_grade TEXT,
+                suggested_textbook TEXT,
+                suggested_volume TEXT,
+                suggested_unit TEXT,
+                suggested_lesson_type TEXT,
+                suggested_tags TEXT,
+                draft_text TEXT,
+                char_count INTEGER DEFAULT 0,
+                confidence REAL DEFAULT 0,
+                quality_status TEXT DEFAULT 'good',
+                quality_warnings TEXT DEFAULT '',
+                estimated_vocab_items INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'pending',
+                created_document_id INTEGER,
+                created_at TEXT,
+                updated_at TEXT,
+                FOREIGN KEY(source_document_id) REFERENCES knowledge_documents(id),
+                FOREIGN KEY(created_document_id) REFERENCES knowledge_documents(id)
+            )
+            """
+        )
 
         ensure_column(conn, "ppt_slides", "slide_json", "TEXT")
         ensure_column(conn, "lesson_tasks", "generation_mode", "TEXT")
@@ -582,6 +613,28 @@ def init_db():
         ensure_column(conn, "knowledge_chunks", "chroma_id", "TEXT")
         ensure_column(conn, "knowledge_chunks", "metadata_json", "TEXT")
         ensure_column(conn, "knowledge_chunks", "created_at", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "source_document_id", "INTEGER")
+        ensure_column(conn, "knowledge_unit_drafts", "unit", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "theme", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "draft_type", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "suggested_title", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "suggested_doc_type", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "suggested_grade", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "suggested_textbook", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "suggested_volume", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "suggested_unit", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "suggested_lesson_type", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "suggested_tags", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "draft_text", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "char_count", "INTEGER DEFAULT 0")
+        ensure_column(conn, "knowledge_unit_drafts", "confidence", "REAL DEFAULT 0")
+        ensure_column(conn, "knowledge_unit_drafts", "quality_status", "TEXT DEFAULT 'good'")
+        ensure_column(conn, "knowledge_unit_drafts", "quality_warnings", "TEXT DEFAULT ''")
+        ensure_column(conn, "knowledge_unit_drafts", "estimated_vocab_items", "INTEGER DEFAULT 0")
+        ensure_column(conn, "knowledge_unit_drafts", "status", "TEXT DEFAULT 'pending'")
+        ensure_column(conn, "knowledge_unit_drafts", "created_document_id", "INTEGER")
+        ensure_column(conn, "knowledge_unit_drafts", "created_at", "TEXT")
+        ensure_column(conn, "knowledge_unit_drafts", "updated_at", "TEXT")
 
         conn.execute(
             """
@@ -635,6 +688,12 @@ def init_db():
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_chunks_chroma_id
             ON knowledge_chunks(chroma_id)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_knowledge_unit_drafts_source
+            ON knowledge_unit_drafts(source_document_id, status, id DESC)
             """
         )
 
@@ -799,6 +858,35 @@ def _normalize_knowledge_chunk_row(row):
     data["chroma_id"] = str(data.get("chroma_id") or "").strip()
     data["metadata_json"] = str(data.get("metadata_json") or "")
     data["created_at"] = str(data.get("created_at") or "").strip()
+    return data
+
+
+def _normalize_knowledge_unit_draft_row(row):
+    if row is None:
+        return None
+    data = dict(row)
+    data["source_document_id"] = _normalize_int(data.get("source_document_id"))
+    data["unit"] = str(data.get("unit") or "").strip()
+    data["theme"] = str(data.get("theme") or "").strip()
+    data["draft_type"] = str(data.get("draft_type") or "").strip()
+    data["suggested_title"] = str(data.get("suggested_title") or "").strip()
+    data["suggested_doc_type"] = str(data.get("suggested_doc_type") or "").strip()
+    data["suggested_grade"] = str(data.get("suggested_grade") or "").strip()
+    data["suggested_textbook"] = str(data.get("suggested_textbook") or "").strip()
+    data["suggested_volume"] = str(data.get("suggested_volume") or "").strip()
+    data["suggested_unit"] = str(data.get("suggested_unit") or "").strip()
+    data["suggested_lesson_type"] = str(data.get("suggested_lesson_type") or "").strip()
+    data["suggested_tags"] = str(data.get("suggested_tags") or "").strip()
+    data["draft_text"] = str(data.get("draft_text") or "")
+    data["char_count"] = _normalize_int(data.get("char_count"), default=0, minimum=0)
+    data["confidence"] = _normalize_float(data.get("confidence"), default=0, minimum=0, maximum=1)
+    data["quality_status"] = str(data.get("quality_status") or "good").strip()
+    data["quality_warnings"] = str(data.get("quality_warnings") or "").strip()
+    data["estimated_vocab_items"] = _normalize_int(data.get("estimated_vocab_items"), default=0, minimum=0)
+    data["status"] = str(data.get("status") or "pending").strip()
+    data["created_document_id"] = _normalize_int(data.get("created_document_id"))
+    data["created_at"] = str(data.get("created_at") or "").strip()
+    data["updated_at"] = str(data.get("updated_at") or "").strip()
     return data
 
 
@@ -1274,6 +1362,113 @@ def list_knowledge_chunks_by_document(document_id):
             (document_id,),
         ).fetchall()
     return [_normalize_knowledge_chunk_row(row) for row in rows]
+
+
+def create_knowledge_unit_draft(payload):
+    with get_db() as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO knowledge_unit_drafts
+            (source_document_id, unit, theme, draft_type, suggested_title, suggested_doc_type, suggested_grade, suggested_textbook, suggested_volume, suggested_unit, suggested_lesson_type, suggested_tags, draft_text, char_count, confidence, quality_status, quality_warnings, estimated_vocab_items, status, created_document_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload.get("source_document_id"),
+                payload.get("unit"),
+                payload.get("theme"),
+                payload.get("draft_type"),
+                payload.get("suggested_title"),
+                payload.get("suggested_doc_type"),
+                payload.get("suggested_grade"),
+                payload.get("suggested_textbook"),
+                payload.get("suggested_volume"),
+                payload.get("suggested_unit"),
+                payload.get("suggested_lesson_type"),
+                payload.get("suggested_tags"),
+                payload.get("draft_text") or "",
+                payload.get("char_count") or 0,
+                payload.get("confidence") or 0,
+                payload.get("quality_status") or "good",
+                payload.get("quality_warnings") or "",
+                payload.get("estimated_vocab_items") or 0,
+                payload.get("status") or "pending",
+                payload.get("created_document_id"),
+                now(),
+                now(),
+            ),
+        )
+        row = conn.execute("SELECT * FROM knowledge_unit_drafts WHERE id=?", (cur.lastrowid,)).fetchone()
+    return _normalize_knowledge_unit_draft_row(row)
+
+
+def list_knowledge_unit_drafts(source_document_id=None, status=None):
+    where = []
+    params = []
+    if source_document_id is not None:
+        where.append("source_document_id=?")
+        params.append(source_document_id)
+    if status:
+        where.append("status=?")
+        params.append(status)
+    sql = "SELECT * FROM knowledge_unit_drafts"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC"
+    with get_db() as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    return [_normalize_knowledge_unit_draft_row(row) for row in rows]
+
+
+def get_knowledge_unit_draft(draft_id):
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM knowledge_unit_drafts WHERE id=?", (draft_id,)).fetchone()
+    return _normalize_knowledge_unit_draft_row(row)
+
+
+def update_knowledge_unit_draft(draft_id, payload):
+    existing = get_knowledge_unit_draft(draft_id)
+    if not existing:
+        return None
+    merged = dict(existing)
+    merged.update({k: v for k, v in (payload or {}).items() if v is not None})
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE knowledge_unit_drafts
+            SET unit=?, theme=?, draft_type=?, suggested_title=?, suggested_doc_type=?, suggested_grade=?, suggested_textbook=?, suggested_volume=?, suggested_unit=?, suggested_lesson_type=?, suggested_tags=?, draft_text=?, char_count=?, confidence=?, quality_status=?, quality_warnings=?, estimated_vocab_items=?, status=?, created_document_id=?, updated_at=?
+            WHERE id=?
+            """,
+            (
+                merged.get("unit"),
+                merged.get("theme"),
+                merged.get("draft_type"),
+                merged.get("suggested_title"),
+                merged.get("suggested_doc_type"),
+                merged.get("suggested_grade"),
+                merged.get("suggested_textbook"),
+                merged.get("suggested_volume"),
+                merged.get("suggested_unit"),
+                merged.get("suggested_lesson_type"),
+                merged.get("suggested_tags"),
+                merged.get("draft_text") or "",
+                merged.get("char_count") or 0,
+                merged.get("confidence") or 0,
+                merged.get("quality_status") or "good",
+                merged.get("quality_warnings") or "",
+                merged.get("estimated_vocab_items") or 0,
+                merged.get("status") or "pending",
+                merged.get("created_document_id"),
+                now(),
+                draft_id,
+            ),
+        )
+        row = conn.execute("SELECT * FROM knowledge_unit_drafts WHERE id=?", (draft_id,)).fetchone()
+    return _normalize_knowledge_unit_draft_row(row)
+
+
+def delete_knowledge_unit_drafts_by_source(source_document_id):
+    with get_db() as conn:
+        conn.execute("DELETE FROM knowledge_unit_drafts WHERE source_document_id=?", (source_document_id,))
 
 
 def query_knowledge_documents(filters=None, limit=50):

@@ -33,6 +33,10 @@
         <form method="post" action="{{ url_for('knowledge.knowledge_mark_metadata_reviewed', doc_id=doc.id) }}">
           <button type="submit" class="btn btn-outline-secondary">标记已确认</button>
         </form>
+        {% if doc.is_whole_book or (doc.doc_type == '教材' and (doc.word_count or 0) > 5000) or ((doc.original_file_path or '').lower().endswith('.pdf')) %}
+        <a class="btn btn-outline-primary" href="{{ url_for('knowledge.knowledge_unit_split', doc_id=doc.id) }}">自动识别 Unit 拆分</a>
+        <a class="btn btn-primary" href="{{ url_for('knowledge.knowledge_page_range_split', doc_id=doc.id) }}">按页码范围拆分教材</a>
+        {% endif %}
         <form method="post" action="{{ url_for('knowledge.knowledge_delete', doc_id=doc.id) }}" onsubmit="return confirm('确定删除该资料吗？此操作不可恢复。')">
           <button type="submit" class="btn btn-outline-danger">删除</button>
         </form>
@@ -51,9 +55,9 @@
       <div class="col-md-3"><strong>需重索引：</strong>{% if need_reindex %}是{% else %}否{% endif %}</div>
       <div class="col-12"><strong>Warnings：</strong><span style="white-space: pre-wrap;">{{ doc.metadata_warnings or "—" }}</span></div>
     </div>
-    {% if doc.is_whole_book %}
-    <div class="alert alert-warning mt-3 mb-0">该资料可能是整本教材。为了提高 RAG 命中准确性，建议按 Unit 拆分或补充单元级资料。</div>
-    {% endif %}
+{% if doc.is_whole_book %}
+    <div class="alert alert-warning mt-3 mb-0">该资料可能是整本教材。自动识别拆分适合快速尝试；正式入库建议使用“按页码范围拆分教材”。</div>
+{% endif %}
     {% if need_reindex %}
     <div class="alert alert-info mt-3 mb-0">文本已变化或尚未索引，建议重新建立向量索引。</div>
     {% endif %}

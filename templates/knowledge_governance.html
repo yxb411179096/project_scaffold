@@ -73,6 +73,9 @@
           <td>
             <div class="d-flex flex-wrap gap-2">
               <a class="btn btn-sm btn-outline-primary" href="{{ url_for('knowledge.knowledge_detail', doc_id=doc.id) }}">查看</a>
+              {% if doc.is_whole_book %}
+              <a class="btn btn-sm btn-outline-primary" href="{{ url_for('knowledge.knowledge_unit_split', doc_id=doc.id) }}">按 Unit 拆分</a>
+              {% endif %}
               <form method="post" action="{{ url_for('knowledge.knowledge_suggest_metadata', doc_id=doc.id) }}"><button class="btn btn-sm btn-outline-info">建议元信息</button></form>
               <form method="post" action="{{ url_for('knowledge.knowledge_mark_metadata_reviewed', doc_id=doc.id) }}"><button class="btn btn-sm btn-outline-secondary">标记已确认</button></form>
               <form method="post" action="{{ url_for('knowledge.knowledge_reindex', doc_id=doc.id) }}"><button class="btn btn-sm btn-outline-warning">重索引</button></form>

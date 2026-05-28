@@ -1,5 +1,58 @@
 # CHANGELOG
 
+## 0.27.0
+- 新增教材 PDF 页码范围式拆分：`services/pdf_page_range_split_service.py`，支持 PDF 总页数探测、教材页码→PDF 物理页偏移映射抽取与页码边界校验。
+- 支持按用户填写页码范围抽取文本并生成页码范围草稿（`page_range_unit_textbook`），用于整本教材半自动拆分入库。
+- 新增 PDF 文本清洗与乱码检测：提供基础清洗、异常字符检测、乱码风险评分与页面提示。
+- 新增页码范围拆分路由：
+  - `GET/POST /knowledge/<doc_id>/page-range-split`
+  - `POST /knowledge/page-range-drafts/<draft_id>/update`
+  - `POST /knowledge/page-range-drafts/<draft_id>/create-document`
+  - `POST /knowledge/page-range-drafts/<draft_id>/create-and-index`
+  - `POST /knowledge/page-range-drafts/bulk-create`
+- 新增页码范围拆分页面 `templates/knowledge_page_range_split.html`：支持偏移设置、Unit 范围填写、草稿编辑、单条创建、创建并索引、批量创建。
+- 知识库详情页新增“双入口”拆分策略：保留“自动识别 Unit 拆分”（快速尝试）并新增“按页码范围拆分教材”（正式入库推荐）。
+- 保留自动拆分路线，不做 OCR、不做 PDF 物理切页；正式覆盖仍以创建后的 `KnowledgeDocument` 为准，草稿不计覆盖。
+
+## 0.26.3
+- 增强 Reading and Thinking 课文识别：支持标题命中与 `reading_title` 回退识别，并在遇到 Grammar/Writing/Workbook/Appendix/下一 Unit 时自动截断。
+- 为人教版必修三补充 Unit 1-5 `reading_title` 映射（Why Do We Celebrate Festivals? / Mother of Ten Thousand Babies / The Chinatown in San Francisco / Space: The Final Frontier / The Million Pound Bank Note）。
+- 新增 reading/vocabulary 草稿类型纠偏：识别“疑似课文误判为词汇表”与“疑似词汇表误判为课文”，自动降级为 warning 并附人工确认提示。
+- 增加 Reading 草稿质量约束：`<300` 为 low_quality，`300-499` 为 warning，`>=500` 且无污染内容才可能 good。
+- Unit 拆分页面新增每单元草稿诊断：展示 `unit_textbook/reading_text/vocabulary` 命中状态，并提示缺失 Reading 与缺失 `reading_title`。
+- 批量创建安全增强：含“疑似课文内容被识别为词汇表”告警的草稿不参与 bulk-create。
+
+## 0.26.2
+- 优化教材拆分中的词汇表 section 边界识别：`Words and Expressions / Word List / Vocabulary` 命中后，遇到 `Workbook / Appendix / Grammar Notes / 下一 Unit / 其他主板块` 自动截断，避免无限后吞。
+- 增加词汇条目数量估算 `estimated_vocab_items`，并写入 `knowledge_unit_drafts` 草稿数据，拆分页面可直接查看词条估算。
+- 增强 vocabulary 草稿质量判断：结合字符长度、词条数量、污染标记（Workbook/附录/练习/页码）、跨单元命中、PDF 粘连短文本等信号评估 `good/warning/low_quality`。
+- 强化批量创建安全规则：`/knowledge/unit-drafts/bulk-create` 继续仅创建 `quality_status=good` 草稿，warning/low_quality 不参与批量创建。
+- 拆分页面新增 vocabulary 草稿质量提示，非 good 草稿按钮弱化并提示“不建议批量创建”。
+
+## 0.26.1
+- 优化教材 Unit 边界识别去重：同一 Unit 多次命中（目录 / 正文 / Workbook / 附录）仅保留最可信主边界，优先正文位置。
+- 增加“严格模式”：当识别候选数量异常偏多（超过册别目录 Unit 数量 2 倍）时，仅保留教材目录中 Unit 的主边界，降低目录重复与附录重复干扰。
+- 增强边界置信度打分：目录页特征（`p. xx` / `contents`）与 `WORKBOOK` / `APPENDIX` / `Grammar Notes` 上下文命中会降权。
+- 新增草稿质量过滤：草稿增加 `quality_status`（`good/warning/low_quality`）和 `quality_warnings`，并按类型设置最小文本阈值，过滤短文本和疑似目录片段。
+- 批量创建优化：`/knowledge/unit-drafts/bulk-create` 默认仅创建 `quality_status=good` 的 pending 草稿，低质量草稿不参与批量创建。
+- 拆分页面增强：显示 good/warning/low_quality 状态、质量告警、低质量草稿折叠预览与“不建议创建”提示；新增识别异常提示与质量统计。
+- 避免重复执行拆分时无限新增重复草稿：按 `volume+unit+draft_type+lesson_type+text hash` 去重。
+
+## 0.26.0
+- 新增教材 PDF 单元文本半自动拆分：`services/textbook_unit_split_service.py`，支持 Unit 边界识别、按 Unit 切分、单元板块抽取（Reading and Thinking / Reading for Writing / Grammar / Vocabulary）。
+- 新增 `KnowledgeUnitDraft` 草稿机制（`knowledge_unit_drafts`）：拆分结果先进入草稿，避免直接写入正式知识库。
+- 新增路由：
+  - `GET/POST /knowledge/<doc_id>/unit-split`
+  - `POST /knowledge/unit-drafts/<draft_id>/create-document`
+  - `POST /knowledge/unit-drafts/<draft_id>/ignore`
+  - `POST /knowledge/unit-drafts/bulk-create`
+- 新增拆分页面 `templates/knowledge_unit_split.html`：支持识别草稿预览、逐条创建、忽略、批量创建 pending 草稿。
+- 知识库详情页新增“按 Unit 拆分教材文本”入口（整本教材或大体量教材）。
+- 知识库治理页整本教材新增“按 Unit 拆分”快捷入口。
+- 草稿创建正式资料时写入 `KnowledgeDocument(status=parsed)` 并执行治理评分；草稿状态更新为 `created`，记录 `created_document_id`。
+- 覆盖统计继续保持：草稿不算覆盖、占位资料不算覆盖，仅正式 `KnowledgeDocument` 计入覆盖结果。
+- 本轮不做 OCR，不做 PDF 物理切页。
+
 ## 0.25.0
 - 新增“课件生成前知识库体检”能力：`services/lesson_readiness_service.py` 提供 `check_lesson_knowledge_readiness(lesson_request)`，输出准备度分数、状态（ready/warning/missing）、缺失项、建议和补资料链接。
 - 新增 `GET /ppt/knowledge-readiness` 路由，支持按教材/册别/单元/课型查询体检结果（JSON）。

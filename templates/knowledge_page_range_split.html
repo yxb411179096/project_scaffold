@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <h1 class="h4 mb-2">按页码范围拆分教材</h1>
+    <div class="text-muted mb-2">{{ doc.title }} · {{ doc.textbook or "—" }} · {{ doc.volume or "—" }} · {{ doc.file_name or "—" }}</div>
+    <div class="small text-muted">推荐用于正式入库。用户填写教材页码范围，系统按偏移映射到 PDF 物理页并抽取文本。</div>
+    <div class="mt-2">
+      {% if pdf_info.available %}
+      <span class="badge text-bg-success">PDF 可用</span>
+      <span class="small ms-2">总页数：{{ pdf_info.page_count }}</span>
+      {% else %}
+      <span class="badge text-bg-danger">PDF 不可用</span>
+      <span class="small ms-2">{{ pdf_info.error }}</span>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <form method="post" action="{{ url_for('knowledge.knowledge_page_range_split', doc_id=doc.id) }}">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label">教材第 1 页对应 PDF 第几页</label>
+          <input type="number" class="form-control" name="pdf_first_page" value="1" min="1">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">页码偏移 (page_offset)</label>
+          <input type="number" class="form-control" name="page_offset" value="0">
+        </div>
+        <div class="col-md-6 small text-muted">
+          例如教材第 1 页对应 PDF 第 5 页，则偏移为 4。
+        </div>
+      </div>
+
+      <div class="table-responsive mt-3">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>生成</th>
+              <th>Unit</th>
+              <th>Theme</th>
+              <th>起始教材页码</th>
+              <th>结束教材页码</th>
+              <th>草稿类型</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in units %}
+            <tr>
+              <td><input type="checkbox" name="enabled_{{ item.form_key }}" checked></td>
+              <td>{{ item.unit }}</td>
+              <td>{{ item.theme or "—" }}</td>
+              <td><input type="number" class="form-control form-control-sm" name="start_page_{{ item.form_key }}" min="1"></td>
+              <td><input type="number" class="form-control form-control-sm" name="end_page_{{ item.form_key }}" min="1"></td>
+              <td>教材内容</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="d-flex gap-2 mt-2">
+        <button type="submit" class="btn btn-primary">生成拆分草稿</button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_detail', doc_id=doc.id) }}">返回资料详情</a>
+      </div>
+    </form>
+  </div>
+</section>
+
+{% if drafts %}
+<section class="card app-card">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h2 class="h5 mb-0">页码范围草稿（{{ drafts|length }}）</h2>
+      <div class="small text-muted">默认仅创建 good 草稿</div>
+    </div>
+
+    <div class="small text-warning mb-3">检测到乱码时建议先编辑再创建。建议检查音标、词汇表和特殊符号。</div>
+
+    <form id="bulk-create-form" method="post" action="{{ url_for('knowledge.knowledge_page_range_drafts_bulk_create') }}" class="d-flex gap-3 align-items-center mb-2">
+      <input type="hidden" name="source_document_id" value="{{ doc.id }}">
+      <label class="form-check-label small mb-0">
+          <input class="form-check-input" type="checkbox" name="allow_warning" value="1" form="bulk-create-form">
+          允许创建 warning 草稿
+      </label>
+      <button class="btn btn-sm btn-outline-primary" type="submit">批量创建选中草稿</button>
+    </form>
+    {% for draft in drafts %}
+    {% set q = draft_quality.get(draft.id, {}) %}
+    <article class="border rounded-3 p-3 mb-3 {% if draft.quality_status != 'good' %}bg-light{% endif %}">
+      <div class="d-flex justify-content-between flex-wrap gap-2 mb-2">
+        <div>
+          <input class="form-check-input me-1" type="checkbox" name="selected_draft_ids" value="{{ draft.id }}" form="bulk-create-form">
+          <strong>{{ draft.unit }} · {{ draft.theme or "—" }}</strong>
+          <span class="badge text-bg-light ms-1">{{ draft.draft_type }}</span>
+          <span class="badge text-bg-secondary ms-1">{{ draft.char_count }} chars</span>
+          <span class="badge {% if draft.quality_status == 'good' %}text-bg-success{% elif draft.quality_status == 'warning' %}text-bg-warning{% else %}text-bg-danger{% endif %} ms-1">{{ draft.quality_status }}</span>
+          {% if q.garbled and q.garbled.garbled %}
+          <span class="badge text-bg-warning ms-1">乱码风险 {{ q.garbled.score }}</span>
+          {% endif %}
+        </div>
+        <div>
+          <span class="badge {% if draft.status == 'created' %}text-bg-success{% elif draft.status == 'ignored' %}text-bg-secondary{% else %}text-bg-primary{% endif %}">{{ draft.status }}</span>
+        </div>
+      </div>
+      {% if draft.quality_warnings %}
+      <div class="small text-warning-emphasis mb-2">{{ draft.quality_warnings }}</div>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('knowledge.knowledge_page_range_draft_update', draft_id=draft.id) }}" class="mb-2">
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label small">标题</label>
+            <input class="form-control form-control-sm" name="suggested_title" value="{{ draft.suggested_title }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small">资料类型</label>
+            <input class="form-control form-control-sm" name="suggested_doc_type" value="{{ draft.suggested_doc_type }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small">课型</label>
+            <input class="form-control form-control-sm" name="suggested_lesson_type" value="{{ draft.suggested_lesson_type }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label small">标签</label>
+            <input class="form-control form-control-sm" name="suggested_tags" value="{{ draft.suggested_tags }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small">草稿正文</label>
+            <textarea class="form-control form-control-sm" rows="6" name="draft_text">{{ draft.draft_text }}</textarea>
+          </div>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary mt-2" type="submit">保存草稿编辑</button>
+      </form>
+
+      <div class="d-flex gap-2 flex-wrap">
+        {% if draft.status == 'pending' %}
+        <form method="post" action="{{ url_for('knowledge.knowledge_page_range_draft_create_document', draft_id=draft.id) }}">
+          <button class="btn btn-sm {% if draft.quality_status == 'good' %}btn-outline-primary{% else %}btn-outline-secondary{% endif %}" type="submit">创建正式资料</button>
+        </form>
+        <form method="post" action="{{ url_for('knowledge.knowledge_page_range_draft_create_and_index', draft_id=draft.id) }}">
+          <button class="btn btn-sm btn-outline-success" type="submit">创建并索引</button>
+        </form>
+        <form method="post" action="{{ url_for('knowledge.knowledge_ignore_draft', draft_id=draft.id) }}">
+          <button class="btn btn-sm btn-outline-secondary" type="submit">忽略</button>
+        </form>
+        {% elif draft.status == 'created' and draft.created_document_id %}
+        <a class="btn btn-sm btn-outline-success" href="{{ url_for('knowledge.knowledge_detail', doc_id=draft.created_document_id) }}">查看已创建资料</a>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

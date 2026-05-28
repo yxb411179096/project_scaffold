@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <h1 class="h4 mb-2">教材 Unit 文本拆分</h1>
+    <div class="text-muted mb-2">{{ doc.title }} · {{ doc.textbook or "—" }} · {{ doc.volume or "—" }} · 字数 {{ doc.word_count }}</div>
+    <div class="warning-note mb-3">本功能仅对文字版 PDF 或已解析文本有效。若为扫描版 PDF，可能无法识别 Unit。</div>
+    <div class="d-flex gap-2 flex-wrap">
+      <form method="post" action="{{ url_for('knowledge.knowledge_unit_split', doc_id=doc.id) }}">
+        <button class="btn btn-primary" type="submit">识别 Unit 并生成草稿</button>
+      </form>
+      <a class="btn btn-outline-secondary" href="{{ url_for('knowledge.knowledge_detail', doc_id=doc.id) }}">返回资料详情</a>
+    </div>
+    {% if abnormal_unit_detection %}
+    <div class="alert alert-warning mt-3 mb-0">识别结果可能包含目录、Workbook 或附录重复，请优先创建高质量草稿。</div>
+    {% endif %}
+  </div>
+</section>
+
+{% if coverage_diag %}
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <h2 class="h5 mb-3">Unit 草稿识别诊断</h2>
+    <div class="d-grid gap-2">
+      {% for item in coverage_diag %}
+      <div class="border rounded-3 p-2">
+        <div class="d-flex gap-2 flex-wrap align-items-center">
+          <strong>{{ item.unit }} · {{ item.theme or "—" }}</strong>
+          <span class="badge {% if item.has_textbook %}text-bg-success{% else %}text-bg-secondary{% endif %}">unit_textbook</span>
+          <span class="badge {% if item.has_reading %}text-bg-success{% else %}text-bg-warning{% endif %}">reading_text</span>
+          <span class="badge {% if item.has_vocabulary %}text-bg-success{% else %}text-bg-secondary{% endif %}">vocabulary</span>
+        </div>
+        {% if item.reading_title %}
+        <div class="small text-muted mt-1">reading_title: {{ item.reading_title }}</div>
+        {% endif %}
+        {% if item.warnings %}
+        <ul class="small text-warning-emphasis mb-0 mt-1">
+          {% for w in item.warnings %}
+          <li>{{ w }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endif %}
+
+{% if drafts %}
+<section class="card app-card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <h2 class="h5 mb-0">草稿列表（{{ drafts|length }}）</h2>
+      <div class="small text-muted">
+        总草稿 {{ quality_stats.total }} · 高质量 {{ quality_stats.good }} · 警告 {{ quality_stats.warning }} · 低质量 {{ quality_stats.low_quality }}
+      </div>
+      <form method="post" action="{{ url_for('knowledge.knowledge_bulk_create_drafts') }}">
+        <input type="hidden" name="source_document_id" value="{{ doc.id }}">
+        <button class="btn btn-outline-primary btn-sm" type="submit">批量创建高质量 pending 草稿</button>
+      </form>
+    </div>
+    <div class="d-grid gap-3 mt-3">
+      {% for draft in drafts %}
+      <article class="border rounded-3 p-3 {% if draft.quality_status == 'low_quality' %}bg-light{% endif %}">
+        <div class="d-flex justify-content-between flex-wrap gap-2 mb-2">
+          <div>
+            <strong>{{ draft.unit }} · {{ draft.theme or "—" }}</strong>
+            <span class="badge text-bg-light ms-1">{{ draft.draft_type }}</span>
+            <span class="badge {% if draft.confidence >= 0.5 %}text-bg-success{% else %}text-bg-warning{% endif %} ms-1">confidence {{ '%.2f'|format(draft.confidence or 0) }}</span>
+            <span class="badge text-bg-secondary ms-1">{{ draft.char_count }} chars</span>
+            {% if draft.quality_status == 'good' %}
+            <span class="badge text-bg-success ms-1">good</span>
+            {% elif draft.quality_status == 'warning' %}
+            <span class="badge text-bg-warning ms-1">warning</span>
+            {% else %}
+            <span class="badge text-bg-secondary ms-1">low_quality</span>
+            {% endif %}
+          </div>
+          <div>
+            <span class="badge {% if draft.status == 'created' %}text-bg-success{% elif draft.status == 'ignored' %}text-bg-secondary{% else %}text-bg-primary{% endif %}">{{ draft.status }}</span>
+          </div>
+        </div>
+        <div class="small text-muted mb-2">{{ draft.suggested_title }}</div>
+        {% if draft.draft_type == 'vocabulary' %}
+        <div class="small text-muted mb-2">estimated_vocab_items: {{ draft.estimated_vocab_items or "—" }}</div>
+        {% endif %}
+        {% if draft.quality_warnings %}
+        <div class="small text-warning-emphasis mb-2">{{ draft.quality_warnings }}</div>
+        {% endif %}
+        {% if draft.quality_status == 'low_quality' %}
+        <details>
+          <summary class="small text-muted">低质量草稿预览（默认折叠）</summary>
+          <pre style="white-space: pre-wrap; max-height: 150px; overflow: auto;">{{ (draft.draft_text or "")[:500] }}{% if (draft.draft_text or "")|length > 500 %}...{% endif %}</pre>
+        </details>
+        {% else %}
+        <pre style="white-space: pre-wrap; max-height: 150px; overflow: auto;">{{ (draft.draft_text or "")[:500] }}{% if (draft.draft_text or "")|length > 500 %}...{% endif %}</pre>
+        {% endif %}
+        <div class="d-flex gap-2 flex-wrap mt-2">
+          {% if draft.status == 'pending' %}
+          <form method="post" action="{{ url_for('knowledge.knowledge_create_from_draft', draft_id=draft.id) }}" {% if draft.quality_status != 'good' %}onsubmit="return confirm('该草稿质量非 good，不建议批量创建。确认继续？')"{% endif %}>
+            <button class="btn btn-sm {% if draft.quality_status == 'good' %}btn-outline-primary{% else %}btn-outline-secondary{% endif %}" type="submit">
+              {% if draft.quality_status == 'good' %}创建正式资料{% else %}不建议批量创建{% endif %}
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('knowledge.knowledge_ignore_draft', draft_id=draft.id) }}">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">忽略</button>
+          </form>
+          {% elif draft.status == 'created' and draft.created_document_id %}
+          <a class="btn btn-sm btn-outline-success" href="{{ url_for('knowledge.knowledge_detail', doc_id=draft.created_document_id) }}">查看已创建资料</a>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% else %}
+<section class="card app-card">
+  <div class="card-body text-muted">暂无拆分草稿。请先点击“识别 Unit 并生成草稿”。</div>
+</section>
+{% endif %}
+{% endblock %}

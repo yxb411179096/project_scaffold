@@ -8,12 +8,17 @@ from werkzeug.utils import secure_filename
 from config import KNOWLEDGE_TEXT_DIR, KNOWLEDGE_UPLOAD_DIR
 from models.database import (
     create_knowledge_document,
+    create_knowledge_unit_draft,
     delete_knowledge_document,
     delete_knowledge_chunks_by_document,
+    delete_knowledge_unit_drafts_by_source,
     get_knowledge_document,
+    get_knowledge_unit_draft,
     now,
+    list_knowledge_unit_drafts,
     list_knowledge_chunks_by_document,
     query_knowledge_documents,
+    update_knowledge_unit_draft,
     update_knowledge_document,
 )
 from services.document_parse_service import (
@@ -37,6 +42,19 @@ from services.knowledge_governance_service import (
     get_knowledge_coverage,
     suggest_metadata,
     update_document_metadata_quality,
+)
+from services.textbook_unit_split_service import (
+    build_unit_document_drafts,
+    detect_unit_boundaries,
+    split_text_by_units,
+)
+from services.textbook_catalog_service import CATALOG
+from services.pdf_page_range_split_service import (
+    build_page_range_drafts,
+    detect_text_garbled,
+    extract_text_by_page_range,
+    get_pdf_page_count,
+    summarize_page_range_quality,
 )
 from services.vector_store_service import VectorStoreError
 
@@ -220,6 +238,55 @@ def _build_doc_payload(form_data, source_type, parsed_text, text_file_path, file
         "embedding_error": "",
         "indexed_at": "",
     }
+
+
+def _create_document_from_draft(draft):
+    quality_note = str(draft.get("quality_warnings") or "").strip()
+    payload = {
+        "title": draft.get("suggested_title") or "Unit Draft",
+        "doc_type": draft.get("suggested_doc_type") or "其他",
+        "grade": draft.get("suggested_grade") or "高一",
+        "textbook": draft.get("suggested_textbook") or "人教版",
+        "volume": draft.get("suggested_volume") or "必修一",
+        "unit": draft.get("suggested_unit") or draft.get("unit") or "",
+        "lesson_type": draft.get("suggested_lesson_type") or "Other",
+        "source_type": "text",
+        "file_name": "",
+        "original_file_path": "",
+        "text_file_path": "",
+        "parsed_text": draft.get("draft_text") or "",
+        "summary": generate_basic_summary(draft.get("draft_text") or "", title=draft.get("suggested_title"), doc_type=draft.get("suggested_doc_type")),
+        "word_count": count_text_words(draft.get("draft_text") or ""),
+        "tags": draft.get("suggested_tags") or "",
+        "status": "parsed",
+        "error_message": "",
+        "embedding_status": "not_indexed",
+        "chunk_count": 0,
+        "vector_collection": "",
+        "embedding_error": "",
+        "metadata_reviewed": False,
+        "metadata_quality_score": 0,
+        "metadata_warnings": quality_note,
+        "is_whole_book": False,
+        "source_unit_key": "|".join(
+            [
+                str(draft.get("suggested_textbook") or "").strip(),
+                str(draft.get("suggested_volume") or "").strip(),
+                str(draft.get("suggested_unit") or "").strip(),
+            ]
+        ).strip("|"),
+    }
+    doc = create_knowledge_document(payload)
+    update_document_metadata_quality(doc)
+    return doc
+
+
+def _is_page_range_draft(draft):
+    return str((draft or {}).get("draft_type") or "").startswith("page_range_")
+
+
+def _unit_form_key(unit):
+    return str(unit or "").replace(" ", "_")
 
 
 @knowledge_bp.route("/knowledge")
@@ -624,6 +691,298 @@ def knowledge_text(doc_id):
         abort(404)
     content = _load_full_text(doc)
     return render_template("knowledge_text.html", doc=doc, content=content)
+
+
+@knowledge_bp.route("/knowledge/<int:doc_id>/unit-split", methods=["GET", "POST"])
+def knowledge_unit_split(doc_id):
+    doc = get_knowledge_document(doc_id)
+    if not doc:
+        abort(404)
+    source_text = _load_full_text(doc)
+    if request.method == "POST":
+        boundaries = detect_unit_boundaries(source_text, textbook=doc.get("textbook"), volume=doc.get("volume"))
+        # refresh only pending/ignored drafts, keep already-created records for traceability
+        old_drafts = list_knowledge_unit_drafts(source_document_id=doc_id)
+        for d in old_drafts:
+            if d.get("status") in {"pending", "ignored"}:
+                update_knowledge_unit_draft(d["id"], {"status": "ignored"})
+        splits = split_text_by_units(source_text, boundaries)
+        drafts = build_unit_document_drafts(doc, splits)
+        existing = list_knowledge_unit_drafts(source_document_id=doc_id)
+        existing_keys = {
+            (
+                str(e.get("suggested_volume") or ""),
+                str(e.get("suggested_unit") or ""),
+                str(e.get("draft_type") or ""),
+                str(e.get("suggested_lesson_type") or ""),
+                str(e.get("draft_text") or "")[:120],
+            )
+            for e in existing
+            if e.get("status") == "pending"
+        }
+        created_count = 0
+        for item in drafts:
+            key = (
+                str(item.get("suggested_volume") or ""),
+                str(item.get("suggested_unit") or ""),
+                str(item.get("draft_type") or ""),
+                str(item.get("suggested_lesson_type") or ""),
+                str(item.get("draft_text") or "")[:120],
+            )
+            if key in existing_keys:
+                continue
+            create_knowledge_unit_draft(item)
+            created_count += 1
+        flash(f"已识别 {len(splits)} 个 Unit，新增 {created_count} 条草稿。", "success")
+        return redirect(url_for("knowledge.knowledge_unit_split", doc_id=doc_id))
+
+    drafts = list_knowledge_unit_drafts(source_document_id=doc_id)
+    quality_stats = {
+        "total": len(drafts),
+        "good": sum(1 for d in drafts if d.get("quality_status") == "good"),
+        "warning": sum(1 for d in drafts if d.get("quality_status") == "warning"),
+        "low_quality": sum(1 for d in drafts if d.get("quality_status") == "low_quality"),
+    }
+    unit_count = len({d.get("unit") for d in drafts if d.get("unit")})
+    catalog_count = len((CATALOG.get(doc.get("textbook"), {}).get(doc.get("volume"), {}) or {}))
+    abnormal = bool(catalog_count and unit_count > catalog_count * 2)
+    by_unit = {}
+    for d in drafts:
+        by_unit.setdefault(d.get("unit") or "Unknown", []).append(d)
+
+    coverage_diag = []
+    catalog_units = (CATALOG.get(doc.get("textbook"), {}).get(doc.get("volume"), {}) or {})
+    for unit_name, meta in catalog_units.items():
+        unit_drafts = by_unit.get(unit_name, [])
+        has_textbook = any(d.get("draft_type") == "unit_textbook" for d in unit_drafts)
+        has_reading = any(d.get("draft_type") == "reading_text" for d in unit_drafts)
+        has_vocab = any(d.get("draft_type") == "vocabulary" for d in unit_drafts)
+        warnings = []
+        reading_title = str((meta or {}).get("reading_title") or "").strip()
+        if not has_reading:
+            warnings.append("未识别到 Reading 课文，建议检查该 Unit 文本或手动补充。")
+            if reading_title:
+                warnings.append(f"未找到 reading_title：{reading_title}")
+        coverage_diag.append(
+            {
+                "unit": unit_name,
+                "theme": (meta or {}).get("theme") or "",
+                "reading_title": reading_title,
+                "has_textbook": has_textbook,
+                "has_reading": has_reading,
+                "has_vocabulary": has_vocab,
+                "warnings": warnings,
+            }
+        )
+
+    return render_template(
+        "knowledge_unit_split.html",
+        doc=doc,
+        drafts=drafts,
+        drafts_by_unit=by_unit,
+        source_text_len=len(source_text or ""),
+        quality_stats=quality_stats,
+        abnormal_unit_detection=abnormal,
+        coverage_diag=coverage_diag,
+    )
+
+
+@knowledge_bp.route("/knowledge/unit-drafts/<int:draft_id>/create-document", methods=["POST"])
+def knowledge_create_from_draft(draft_id):
+    draft = get_knowledge_unit_draft(draft_id)
+    if not draft:
+        abort(404)
+    if draft.get("status") == "created" and draft.get("created_document_id"):
+        flash("该草稿已创建正式资料。", "info")
+        return redirect(url_for("knowledge.knowledge_detail", doc_id=draft.get("created_document_id")))
+    doc = _create_document_from_draft(draft)
+    update_knowledge_unit_draft(draft_id, {"status": "created", "created_document_id": doc["id"]})
+    flash("已创建单元资料，请建立向量索引。", "success")
+    return redirect(url_for("knowledge.knowledge_unit_split", doc_id=draft.get("source_document_id")))
+
+
+@knowledge_bp.route("/knowledge/unit-drafts/<int:draft_id>/ignore", methods=["POST"])
+def knowledge_ignore_draft(draft_id):
+    draft = get_knowledge_unit_draft(draft_id)
+    if not draft:
+        abort(404)
+    update_knowledge_unit_draft(draft_id, {"status": "ignored"})
+    flash("已忽略草稿。", "info")
+    return redirect(url_for("knowledge.knowledge_unit_split", doc_id=draft.get("source_document_id")))
+
+
+@knowledge_bp.route("/knowledge/unit-drafts/bulk-create", methods=["POST"])
+def knowledge_bulk_create_drafts():
+    source_document_id = int(request.form.get("source_document_id") or 0)
+    drafts = list_knowledge_unit_drafts(source_document_id=source_document_id, status="pending")
+    created = 0
+    for d in drafts:
+        if d.get("quality_status") != "good":
+            continue
+        if "疑似课文内容被识别为词汇表" in str(d.get("quality_warnings") or ""):
+            continue
+        doc = _create_document_from_draft(d)
+        update_knowledge_unit_draft(d["id"], {"status": "created", "created_document_id": doc["id"]})
+        created += 1
+    flash(f"批量创建高质量 pending 草稿完成：{created} 条。", "success")
+    return redirect(url_for("knowledge.knowledge_unit_split", doc_id=source_document_id))
+
+
+@knowledge_bp.route("/knowledge/<int:doc_id>/page-range-split", methods=["GET", "POST"])
+def knowledge_page_range_split(doc_id):
+    doc = get_knowledge_document(doc_id)
+    if not doc:
+        abort(404)
+    pdf_info = get_pdf_page_count(doc)
+    catalog_units = CATALOG.get(doc.get("textbook"), {}).get(doc.get("volume"), {}) or {}
+    units = []
+    for unit_name, meta in catalog_units.items():
+        units.append(
+            {
+                "unit": unit_name,
+                "theme": (meta or {}).get("theme") or "",
+                "reading_title": (meta or {}).get("reading_title") or "",
+                "form_key": _unit_form_key(unit_name),
+            }
+        )
+
+    if request.method == "POST":
+        page_offset = int(request.form.get("page_offset") or 0)
+        old = list_knowledge_unit_drafts(source_document_id=doc_id)
+        for d in old:
+            if d.get("status") in {"pending", "ignored"} and _is_page_range_draft(d):
+                update_knowledge_unit_draft(d["id"], {"status": "ignored"})
+
+        ranges = []
+        generated = 0
+        for item in units:
+            key = item["form_key"]
+            enabled = str(request.form.get(f"enabled_{key}") or "").lower() in {"1", "on", "true", "yes"}
+            if not enabled:
+                continue
+            start_page = int(request.form.get(f"start_page_{key}") or 0)
+            end_page = int(request.form.get(f"end_page_{key}") or 0)
+            if start_page <= 0 or end_page <= 0 or start_page > end_page:
+                continue
+            extracted = extract_text_by_page_range(doc, start_page, end_page, page_offset=page_offset)
+            ranges.append(
+                {
+                    "unit": item["unit"],
+                    "theme": item["theme"],
+                    "start_page": start_page,
+                    "end_page": end_page,
+                    "actual_start_page": extracted.get("actual_start_page"),
+                    "actual_end_page": extracted.get("actual_end_page"),
+                    "text": extracted.get("text") or "",
+                    "warnings": extracted.get("warnings") or [],
+                    "draft_type": "unit_textbook",
+                }
+            )
+        drafts = build_page_range_drafts(doc, ranges)
+        for draft in drafts:
+            create_knowledge_unit_draft(draft)
+            generated += 1
+        flash(f"已按页码范围生成 {generated} 条草稿。", "success")
+        return redirect(url_for("knowledge.knowledge_page_range_split", doc_id=doc_id))
+
+    drafts_all = list_knowledge_unit_drafts(source_document_id=doc_id)
+    drafts = [d for d in drafts_all if _is_page_range_draft(d)]
+    draft_quality = {d["id"]: summarize_page_range_quality(d) for d in drafts}
+    return render_template(
+        "knowledge_page_range_split.html",
+        doc=doc,
+        pdf_info=pdf_info,
+        units=units,
+        drafts=drafts,
+        draft_quality=draft_quality,
+    )
+
+
+@knowledge_bp.route("/knowledge/page-range-drafts/<int:draft_id>/update", methods=["POST"])
+def knowledge_page_range_draft_update(draft_id):
+    draft = get_knowledge_unit_draft(draft_id)
+    if not draft:
+        abort(404)
+    if not _is_page_range_draft(draft):
+        flash("该草稿不是页码范围拆分草稿。", "warning")
+        return redirect(url_for("knowledge.knowledge_page_range_split", doc_id=draft.get("source_document_id")))
+
+    payload = {
+        "suggested_title": str(request.form.get("suggested_title") or draft.get("suggested_title") or "").strip(),
+        "suggested_doc_type": str(request.form.get("suggested_doc_type") or draft.get("suggested_doc_type") or "").strip(),
+        "suggested_lesson_type": str(request.form.get("suggested_lesson_type") or draft.get("suggested_lesson_type") or "").strip(),
+        "suggested_tags": str(request.form.get("suggested_tags") or draft.get("suggested_tags") or "").strip(),
+        "draft_text": str(request.form.get("draft_text") or draft.get("draft_text") or ""),
+    }
+    payload["char_count"] = len(payload["draft_text"])
+    garbled = detect_text_garbled(payload["draft_text"])
+    quality = "good"
+    if payload["char_count"] < 300 or garbled.get("score", 0) >= 35:
+        quality = "low_quality"
+    elif payload["char_count"] < 800 or garbled.get("garbled"):
+        quality = "warning"
+    warns = []
+    if garbled.get("warnings"):
+        warns.extend(garbled.get("warnings"))
+    payload["quality_status"] = quality
+    payload["quality_warnings"] = ";".join(warns)
+    update_knowledge_unit_draft(draft_id, payload)
+    flash("草稿已更新。", "success")
+    return redirect(url_for("knowledge.knowledge_page_range_split", doc_id=draft.get("source_document_id")))
+
+
+@knowledge_bp.route("/knowledge/page-range-drafts/<int:draft_id>/create-document", methods=["POST"])
+def knowledge_page_range_draft_create_document(draft_id):
+    draft = get_knowledge_unit_draft(draft_id)
+    if not draft:
+        abort(404)
+    if draft.get("status") == "created" and draft.get("created_document_id"):
+        return redirect(url_for("knowledge.knowledge_detail", doc_id=draft.get("created_document_id")))
+    doc = _create_document_from_draft(draft)
+    update_knowledge_unit_draft(draft_id, {"status": "created", "created_document_id": doc["id"]})
+    flash("已创建正式资料。", "success")
+    return redirect(url_for("knowledge.knowledge_page_range_split", doc_id=draft.get("source_document_id")))
+
+
+@knowledge_bp.route("/knowledge/page-range-drafts/<int:draft_id>/create-and-index", methods=["POST"])
+def knowledge_page_range_draft_create_and_index(draft_id):
+    draft = get_knowledge_unit_draft(draft_id)
+    if not draft:
+        abort(404)
+    if draft.get("status") == "created" and draft.get("created_document_id"):
+        doc_id = draft.get("created_document_id")
+    else:
+        created = _create_document_from_draft(draft)
+        update_knowledge_unit_draft(draft_id, {"status": "created", "created_document_id": created["id"]})
+        doc_id = created["id"]
+    result = index_knowledge_document(doc_id)
+    if result.get("ok"):
+        flash("资料已创建并建立向量索引。", "success")
+    else:
+        flash(f"资料已创建，但索引失败：{result.get('message')}", "warning")
+    return redirect(url_for("knowledge.knowledge_page_range_split", doc_id=draft.get("source_document_id")))
+
+
+@knowledge_bp.route("/knowledge/page-range-drafts/bulk-create", methods=["POST"])
+def knowledge_page_range_drafts_bulk_create():
+    source_document_id = int(request.form.get("source_document_id") or 0)
+    selected_ids = request.form.getlist("selected_draft_ids")
+    allow_warning = str(request.form.get("allow_warning") or "").lower() in {"1", "true", "on", "yes"}
+    drafts = [d for d in list_knowledge_unit_drafts(source_document_id=source_document_id, status="pending") if _is_page_range_draft(d)]
+    selected_set = {int(x) for x in selected_ids if str(x).isdigit()}
+    created = 0
+    for d in drafts:
+        if selected_set and d["id"] not in selected_set:
+            continue
+        if d.get("quality_status") == "low_quality":
+            continue
+        if d.get("quality_status") == "warning" and not allow_warning:
+            continue
+        doc = _create_document_from_draft(d)
+        update_knowledge_unit_draft(d["id"], {"status": "created", "created_document_id": doc["id"]})
+        created += 1
+    flash(f"批量创建完成：{created} 条。", "success")
+    return redirect(url_for("knowledge.knowledge_page_range_split", doc_id=source_document_id))
 
 
 @knowledge_bp.route("/knowledge/governance")

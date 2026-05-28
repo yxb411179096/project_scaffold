@@ -47,11 +47,26 @@ RENJIAO_REQUIRED_2 = {
 }
 
 RENJIAO_REQUIRED_3 = {
-    "Unit 1": {"theme": "Festivals and Celebrations"},
-    "Unit 2": {"theme": "Morals and Virtues"},
-    "Unit 3": {"theme": "Diverse Cultures"},
-    "Unit 4": {"theme": "Space Exploration"},
-    "Unit 5": {"theme": "The Value of Money"},
+    "Unit 1": {
+        "theme": "Festivals and Celebrations",
+        "reading_title": "Why Do We Celebrate Festivals?",
+    },
+    "Unit 2": {
+        "theme": "Morals and Virtues",
+        "reading_title": "Mother of Ten Thousand Babies",
+    },
+    "Unit 3": {
+        "theme": "Diverse Cultures",
+        "reading_title": "The Chinatown in San Francisco",
+    },
+    "Unit 4": {
+        "theme": "Space Exploration",
+        "reading_title": "Space: The Final Frontier",
+    },
+    "Unit 5": {
+        "theme": "The Value of Money",
+        "reading_title": "The Million Pound Bank Note",
+    },
 }
 
 CATALOG = {
